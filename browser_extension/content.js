@@ -12,9 +12,9 @@
   let lastTargetUrl = "";
   let activeQualityMenu = null;
 
-  // 1. Close open quality menu on click outside
+  // 1. Close open quality menu on click outside floating wrapper
   document.addEventListener("click", (e) => {
-    if (activeQualityMenu && !activeQualityMenu.contains(e.target)) {
+    if (activeQualityMenu && !e.target.closest(".dmans-floating-wrapper")) {
       activeQualityMenu.remove();
       activeQualityMenu = null;
       document.querySelectorAll(".dmans-floating-wrapper.dmans-active").forEach(el => {
@@ -139,6 +139,7 @@
   function dispatchDownload(streamUrl, quality, bar) {
     const title = getVideoTitle();
     const btnLabel = bar.querySelector(".dmans-btn-main span");
+    const originalText = "Download this video";
     if (btnLabel) btnLabel.textContent = `⏳ Sending ${quality}...`;
 
     try {
@@ -149,21 +150,27 @@
           filename: title,
           quality: quality
         }, (res) => {
-          if (chrome.runtime && chrome.runtime.lastError) return;
+          if (chrome.runtime && chrome.runtime.lastError) {
+            if (btnLabel) btnLabel.textContent = "⚠️ Refresh Halaman Tab";
+            setTimeout(() => { if (btnLabel) btnLabel.textContent = originalText; }, 3000);
+            return;
+          }
           if (btnLabel) {
             if (res && res.offline) {
               btnLabel.textContent = "⚠️ Dmans Belum Dibuka";
             } else {
               btnLabel.textContent = `✓ Started (${quality})`;
             }
+            setTimeout(() => { if (btnLabel) btnLabel.textContent = originalText; }, 2500);
           }
         });
       }
-    } catch (e) {}
-
-    setTimeout(() => {
-      if (btnLabel) btnLabel.textContent = "Download this video";
-    }, 2800);
+    } catch (e) {
+      if (btnLabel) {
+        btnLabel.textContent = "⚠️ Refresh Halaman Tab";
+        setTimeout(() => { if (btnLabel) btnLabel.textContent = originalText; }, 3000);
+      }
+    }
   }
 
   // 7. Guaranteed IDM Floating Bar Attachment
@@ -194,13 +201,16 @@
 
     const wrapper = document.createElement("div");
     wrapper.className = "dmans-floating-wrapper";
+    if (ytPlayer) {
+      wrapper.classList.add("dmans-yt-mode");
+    }
 
-    // Isolate clicks completely from video player (never pause or trigger fullscreen)
-    ["click", "mousedown", "mouseup", "dblclick", "contextmenu"].forEach(evtName => {
+    // Isolate all mouse/touch events from bubbling up to the video player
+    // This ensures YouTube never pauses/plays or changes full screen when user clicks on Dmans bar
+    ["click", "mousedown", "mouseup", "pointerdown", "pointerup", "dblclick", "contextmenu"].forEach(evtName => {
       wrapper.addEventListener(evtName, (e) => {
         e.stopPropagation();
-        e.stopImmediatePropagation();
-      }, true);
+      }, false); // NOTE: Must be false (bubbling phase) so children receive their events first!
     });
 
     const bar = document.createElement("div");
@@ -267,16 +277,17 @@
         </div>
       `;
 
-      menu.querySelectorAll(".dmans-quality-item").forEach(item => {
-        item.addEventListener("click", (ev) => {
-          ev.preventDefault();
-          ev.stopPropagation();
-          const quality = item.dataset.q;
-          dispatchDownload(streamUrl, quality, bar);
-          menu.remove();
-          activeQualityMenu = null;
-          wrapper.classList.remove("dmans-active");
-        });
+      // Use event delegation on menu for 100% reliable click handling
+      menu.addEventListener("click", (ev) => {
+        const item = ev.target.closest(".dmans-quality-item");
+        if (!item) return;
+        ev.preventDefault();
+        ev.stopPropagation();
+        const quality = item.getAttribute("data-q") || "1080p";
+        dispatchDownload(streamUrl, quality, bar);
+        menu.remove();
+        activeQualityMenu = null;
+        wrapper.classList.remove("dmans-active");
       });
 
       wrapper.appendChild(menu);
@@ -296,6 +307,8 @@
   // 8. Event triggers for single-page apps (YouTube, TikTok, Netflix, etc.)
   ["yt-navigate-finish", "spfdone", "popstate", "DOMContentLoaded", "load"].forEach(evtName => {
     window.addEventListener(evtName, () => {
+      // Clear any orphaned bars from previous page/video
+      document.querySelectorAll(".dmans-floating-wrapper").forEach(el => el.remove());
       setTimeout(scanAndAttach, 400);
       setTimeout(scanAndAttach, 1200);
     });
