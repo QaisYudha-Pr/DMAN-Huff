@@ -1,6 +1,6 @@
 """
-PyIDM - Internet Download Manager Desktop Application
-A complete, authentic clone of IDM built with Python & Tkinter
+Dmans Desktop Application
+High-speed multi-threaded download manager with dynamic connection visualizer.
 """
 
 import os
@@ -18,16 +18,16 @@ from typing import Dict, Optional
 
 import version
 import updater
-from idm_engine import DownloadTask
+from dmans_engine import DownloadTask
 
 try:
     import winsound
 except ImportError:
     winsound = None
 
-DB_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads_db.json")
+DB_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dmans_db.json")
 
-class PyIDMApiHandler(BaseHTTPRequestHandler):
+class DmansApiHandler(BaseHTTPRequestHandler):
     app_ref = None
 
     def _send_cors(self):
@@ -46,7 +46,7 @@ class PyIDMApiHandler(BaseHTTPRequestHandler):
             self._send_cors()
             self.send_header("Content-Type", "application/json")
             self.end_headers()
-            self.wfile.write(b'{"status": "ok", "app": "PyIDM"}')
+            self.wfile.write(b'{"status": "ok", "app": "Dmans"}')
         else:
             self.send_response(404)
             self.end_headers()
@@ -57,14 +57,14 @@ class PyIDMApiHandler(BaseHTTPRequestHandler):
             body = self.rfile.read(length).decode("utf-8")
             try:
                 data = json.loads(body)
-                if PyIDMApiHandler.app_ref:
-                    PyIDMApiHandler.app_ref.after(0, PyIDMApiHandler.app_ref.handle_browser_add, data)
+                if DmansApiHandler.app_ref:
+                    DmansApiHandler.app_ref.after(0, DmansApiHandler.app_ref.handle_browser_add, data)
                 self.send_response(200)
                 self._send_cors()
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
                 self.wfile.write(b'{"status": "received"}')
-            except Exception as e:
+            except Exception:
                 self.send_response(400)
                 self.end_headers()
         else:
@@ -72,21 +72,20 @@ class PyIDMApiHandler(BaseHTTPRequestHandler):
             self.end_headers()
 
     def log_message(self, format, *args):
-        pass  # Silence HTTP server logs to keep terminal clean
+        pass
 
-class PyIDMApp(tk.Tk):
+
+class DmansApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title(f"PyIDM v{version.VERSION} - Internet Download Manager")
+        self.title(f"Dmans v{version.VERSION} - Fast Download Accelerator")
         self.geometry("980x620")
         self.minsize(800, 500)
 
-        # Apply system styling
         self.style = ttk.Style(self)
         if "vista" in self.style.theme_names():
             self.style.theme_use("vista")
 
-        # Configure custom modern colors and styles
         self.configure(bg="#F0F2F5")
         self.style.configure("Treeview.Heading", font=("Segoe UI", 9, "bold"), padding=4)
         self.style.configure("Treeview", font=("Segoe UI", 9), rowheight=26)
@@ -112,29 +111,27 @@ class PyIDMApp(tk.Tk):
         self._start_background_monitors()
         self._start_api_server()
 
-        # Check if URL passed via CLI / Protocol (e.g. pyidm://<url>)
+        # Handle CLI argument or protocol URL (dmans://)
         if len(sys.argv) > 1:
             arg_url = sys.argv[1].strip()
-            if arg_url.startswith("pyidm://"):
-                arg_url = arg_url[len("pyidm://"):]
+            if arg_url.startswith("dmans://"):
+                arg_url = arg_url[len("dmans://"):]
             if arg_url.startswith("http://") or arg_url.startswith("https://"):
                 self.after(500, lambda u=arg_url: self.show_add_download_dialog(initial_url=u))
 
     def _start_api_server(self):
-        """Starts local API server for Chrome/Edge extension integration on port 18888"""
         def run_server():
             try:
-                PyIDMApiHandler.app_ref = self
-                server = HTTPServer(("127.0.0.1", 18888), PyIDMApiHandler)
+                DmansApiHandler.app_ref = self
+                server = HTTPServer(("127.0.0.1", 18888), DmansApiHandler)
                 server.serve_forever()
             except Exception as e:
-                print(f"[!] PyIDM Browser API server error: {e}")
+                print(f"[!] Dmans API server error: {e}")
 
         t = threading.Thread(target=run_server, daemon=True)
         t.start()
 
     def handle_browser_add(self, data: dict):
-        """Triggered automatically when a download is sent from Chrome / Edge"""
         url = data.get("url", "").strip()
         if not url:
             return
@@ -149,7 +146,6 @@ class PyIDMApp(tk.Tk):
         self.after(600, lambda: self.attributes("-topmost", False))
         self.show_add_download_dialog(initial_url=url)
 
-    # ------------------ Database Persistence ------------------
     def _load_db(self) -> list:
         if os.path.exists(DB_FILE):
             try:
@@ -162,7 +158,6 @@ class PyIDMApp(tk.Tk):
     def _save_db(self):
         records = []
         for r in self.db_records:
-            # Sync with live task if active
             task = self.downloads.get(r["url"])
             if task:
                 p = task.get_progress()
@@ -177,7 +172,6 @@ class PyIDMApp(tk.Tk):
         except Exception:
             pass
 
-    # ------------------ UI Structure ------------------
     def _build_menu(self):
         menubar = tk.Menu(self)
 
@@ -202,12 +196,14 @@ class PyIDMApp(tk.Tk):
         menubar.add_cascade(label="View", menu=view_menu)
 
         help_menu = tk.Menu(menubar, tearoff=0)
-        help_menu.add_command(label="About PyIDM", command=lambda: messagebox.showinfo(
-            "About PyIDM",
-            "PyIDM - Internet Download Manager Clone\n"
-            "High-performance multi-connection download accelerator.\n"
-            "RFC 7233 Range Slicing, Dynamic Segmentation, and Resume Support.\n\n"
-            "Free & Open for Personal Use."
+        help_menu.add_command(label="Check for Updates...", command=self.check_updates_dialog)
+        help_menu.add_command(label="GitHub Repository Settings...", command=self.show_settings_dialog)
+        help_menu.add_separator()
+        help_menu.add_command(label="About Dmans", command=lambda: messagebox.showinfo(
+            "About Dmans",
+            f"Dmans v{version.VERSION} - Fast Download Accelerator\n"
+            "High-performance multi-connection segmented downloader.\n"
+            "Bilingual, open-source, and free forever."
         ))
         menubar.add_cascade(label="Help", menu=help_menu)
 
@@ -251,7 +247,6 @@ class PyIDMApp(tk.Tk):
         paned = ttk.PanedWindow(self, orient=tk.HORIZONTAL)
         paned.pack(fill=tk.BOTH, expand=True, padx=4, pady=2)
 
-        # 1. Left Categories Pane
         left_frame = ttk.Frame(paned, width=190)
         paned.add(left_frame, weight=1)
 
@@ -261,7 +256,6 @@ class PyIDMApp(tk.Tk):
         self.cat_tree = ttk.Treeview(left_frame, selectmode="browse", show="tree")
         self.cat_tree.pack(fill=tk.BOTH, expand=True, padx=2, pady=2)
 
-        # Populate IDM categories
         root_node = self.cat_tree.insert("", "end", text="📁 All Downloads", open=True, values=("All Downloads",))
         self.cat_tree.insert(root_node, "end", text="  ⏳ Unfinished", values=("Unfinished",))
         self.cat_tree.insert(root_node, "end", text="  ✅ Finished", values=("Finished",))
@@ -276,7 +270,6 @@ class PyIDMApp(tk.Tk):
 
         self.cat_tree.bind("<<TreeviewSelect>>", self._on_category_select)
 
-        # 2. Right Downloads Table Pane
         right_frame = ttk.Frame(paned)
         paned.add(right_frame, weight=5)
 
@@ -312,7 +305,6 @@ class PyIDMApp(tk.Tk):
         self.tree.bind("<Double-1>", self._on_item_double_click)
         self.tree.bind("<Button-3>", self._show_context_menu)
 
-        # Context Menu
         self.context_menu = tk.Menu(self, tearoff=0)
         self.context_menu.add_command(label="🔍 View Details / Segments", command=self._open_selected_details)
         self.context_menu.add_separator()
@@ -335,7 +327,6 @@ class PyIDMApp(tk.Tk):
         self.status_speed_lbl = ttk.Label(self.statusbar, text="Global Speed: 0.00 MB/s", font=("Segoe UI", 9, "bold"))
         self.status_speed_lbl.pack(side=tk.RIGHT, padx=8)
 
-    # ------------------ Table Management & Filtering ------------------
     def _on_category_select(self, event):
         sel = self.cat_tree.selection()
         if sel:
@@ -351,7 +342,6 @@ class PyIDMApp(tk.Tk):
             cat = rec.get("category", "General")
             status = rec.get("status", "Queued")
 
-            # Apply category filter
             if self.selected_category == "Unfinished" and status == "Completed":
                 continue
             elif self.selected_category == "Finished" and status != "Completed":
@@ -385,7 +375,6 @@ class PyIDMApp(tk.Tk):
         else:
             return f"{size_bytes / (1024 * 1024 * 1024):.2f} GB"
 
-    # ------------------ Actions & Downloads ------------------
     def show_add_download_dialog(self, initial_url: str = ""):
         if not initial_url:
             try:
@@ -399,6 +388,27 @@ class PyIDMApp(tk.Tk):
         self.wait_window(dlg)
         if dlg.result:
             self._add_task(dlg.result)
+
+    def show_batch_download_dialog(self):
+        dlg = AddBatchDialog(self)
+        self.wait_window(dlg)
+        if dlg.results:
+            urls = dlg.results["urls"]
+            out_dir = dlg.results["output_dir"]
+            conns = dlg.results["connections"]
+            added_cnt = 0
+            for u in urls:
+                if not any(r["url"] == u for r in self.db_records):
+                    self._add_task({
+                        "url": u,
+                        "filename": None,
+                        "output_dir": out_dir,
+                        "connections": conns,
+                        "max_speed_kb": None,
+                        "start_now": False
+                    })
+                    added_cnt += 1
+            messagebox.showinfo("Batch Add", f"Added {added_cnt} download(s) to the queue.")
 
     def _add_task(self, cfg: dict):
         url = cfg["url"]
@@ -440,8 +450,6 @@ class PyIDMApp(tk.Tk):
             progress_callback=lambda p: self._on_task_progress(url, p)
         )
         self.downloads[url] = task
-
-        # Open IDM Detail Segment Window
         self._open_detail_window(task)
 
         t = threading.Thread(target=task.start, daemon=True)
@@ -511,6 +519,17 @@ class PyIDMApp(tk.Tk):
             if task:
                 task.pause()
 
+    def start_queue(self):
+        self.queue_active.set(True)
+        active_now = sum(1 for t in self.downloads.values() if t.status in ["Downloading", "Connecting"])
+        max_c = max(1, self.max_concurrent_var.get())
+        for rec in self.db_records:
+            if active_now >= max_c:
+                break
+            if rec.get("status") in ["Queued", "Paused"]:
+                self._start_task(rec)
+                active_now += 1
+
     def stop_all(self):
         for task in self.downloads.values():
             task.pause()
@@ -529,7 +548,6 @@ class PyIDMApp(tk.Tk):
             self._save_db()
             self._refresh_table()
 
-    # ------------------ Context Menu & Helpers ------------------
     def _show_context_menu(self, event):
         item = self.tree.identify_row(event.y)
         if item:
@@ -586,44 +604,10 @@ class PyIDMApp(tk.Tk):
             self.clipboard_clear()
             self.clipboard_append(selected[0])
 
-    def start_queue(self):
-        self.queue_active.set(True)
-        active_now = sum(1 for t in self.downloads.values() if t.status in ["Downloading", "Connecting"])
-        max_c = max(1, self.max_concurrent_var.get())
-        for rec in self.db_records:
-            if active_now >= max_c:
-                break
-            if rec.get("status") in ["Queued", "Paused"]:
-                self._start_task(rec)
-                active_now += 1
-
-    def show_batch_download_dialog(self):
-        dlg = AddBatchDialog(self)
-        self.wait_window(dlg)
-        if dlg.results:
-            urls = dlg.results["urls"]
-            out_dir = dlg.results["output_dir"]
-            conns = dlg.results["connections"]
-            added_cnt = 0
-            for u in urls:
-                if not any(r["url"] == u for r in self.db_records):
-                    self._add_task({
-                        "url": u,
-                        "filename": None,
-                        "output_dir": out_dir,
-                        "connections": conns,
-                        "max_speed_kb": None,
-                        "start_now": False
-                    })
-                    added_cnt += 1
-            messagebox.showinfo("Batch Add", f"Added {added_cnt} download(s) to the queue.")
-
-    # ------------------ Background Monitors ------------------
     def _start_background_monitors(self):
         def monitor_loop():
             while True:
                 time.sleep(1.2)
-                # 1. Update Global Speed Status
                 total_speed = sum(
                     t.current_speed for t in self.downloads.values() if t.status == "Downloading"
                 )
@@ -633,7 +617,6 @@ class PyIDMApp(tk.Tk):
                 speed_str = f"{total_speed / (1024 * 1024):.2f} MB/s"
                 self.after(0, lambda: self._update_global_status(active_count, speed_str))
 
-                # 2. Clipboard Monitor
                 if self.clipboard_monitor_active.get():
                     try:
                         clip = self.clipboard_get().strip()
@@ -646,7 +629,6 @@ class PyIDMApp(tk.Tk):
                     except Exception:
                         pass
 
-                # 3. Queue Scheduler (Auto-starts next downloads up to max active)
                 if self.queue_active.get():
                     active_now = sum(
                         1 for t in self.downloads.values() if t.status in ["Downloading", "Connecting"]
@@ -667,15 +649,108 @@ class PyIDMApp(tk.Tk):
         self.status_speed_lbl.config(text=f"Global Speed: {speed_str}")
 
     def _prompt_clipboard_download(self, url: str):
-        if messagebox.askyesno("PyIDM - New Download Detected", f"A downloadable link was detected in your clipboard:\n\n{url}\n\nDo you want to download it now?"):
+        if messagebox.askyesno("Dmans - New Download Detected", f"Download link detected in clipboard:\n\n{url}\n\nStart download with Dmans?"):
             self.show_add_download_dialog(initial_url=url)
 
+    def check_updates_dialog(self):
+        res = updater.check_for_updates()
+        if res.get("has_update"):
+            msg = f"New version available: v{res['latest_version']}\n\nNotes:\n{res.get('release_notes')}\n\nOpen GitHub release page?"
+            if messagebox.askyesno("Update Available", msg):
+                webbrowser.open(res.get("html_url"))
+        elif res.get("status") == "no_update":
+            messagebox.showinfo("Up to Date", f"You are running the latest version of Dmans (v{version.VERSION}).")
+        else:
+            messagebox.showinfo("Updates", res.get("error_message") or "Could not check updates.")
 
-# ------------------ Add Download Dialog ------------------
+    def show_settings_dialog(self):
+        cfg = updater.load_config()
+        dlg = tk.Toplevel(self)
+        dlg.title("Dmans Settings")
+        dlg.geometry("400x200")
+        dlg.transient(self)
+        dlg.grab_set()
+
+        f = ttk.Frame(dlg, padding=12)
+        f.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(f, text="GitHub Repository (username/repo):").pack(anchor=tk.W, pady=4)
+        repo_var = tk.StringVar(value=cfg.get("github_repo", "user/dmans"))
+        ttk.Entry(f, textvariable=repo_var, width=35).pack(fill=tk.X, pady=4)
+
+        def save():
+            cfg["github_repo"] = repo_var.get().strip()
+            updater.save_config(cfg)
+            dlg.destroy()
+            messagebox.showinfo("Settings", "Settings saved successfully!")
+
+        ttk.Button(f, text="Save Settings", command=save).pack(side=tk.RIGHT, pady=10)
+
+
+class AddBatchDialog(tk.Toplevel):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.title("Batch Add URLs - Dmans")
+        self.geometry("560x380")
+        self.transient(parent)
+        self.grab_set()
+
+        self.results = None
+        self.dir_var = tk.StringVar(value=os.path.abspath("."))
+        self.conn_var = tk.IntVar(value=8)
+
+        self._build_ui()
+
+    def _build_ui(self):
+        f = ttk.Frame(self, padding=12)
+        f.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(f, text="Paste URLs (one per line):", font=("Segoe UI", 9, "bold")).pack(anchor=tk.W, pady=2)
+        self.text_area = tk.Text(f, height=10, width=50, font=("Consolas", 9))
+        self.text_area.pack(fill=tk.BOTH, expand=True, pady=4)
+
+        opt_frame = ttk.Frame(f)
+        opt_frame.pack(fill=tk.X, pady=6)
+
+        ttk.Label(opt_frame, text="Save To:").grid(row=0, column=0, sticky=tk.W, padx=4)
+        ttk.Entry(opt_frame, textvariable=self.dir_var).grid(row=0, column=1, sticky=tk.EW, padx=4)
+        ttk.Button(opt_frame, text="Browse...", command=self._browse).grid(row=0, column=2, padx=4)
+
+        ttk.Label(opt_frame, text="Connections per file:").grid(row=1, column=0, sticky=tk.W, padx=4, pady=4)
+        ttk.Combobox(opt_frame, textvariable=self.conn_var, values=[1, 2, 4, 8, 16], width=6, state="readonly").grid(row=1, column=1, sticky=tk.W, padx=4, pady=4)
+
+        opt_frame.columnconfigure(1, weight=1)
+
+        btn_box = ttk.Frame(f)
+        btn_box.pack(fill=tk.X, pady=6)
+
+        ttk.Button(btn_box, text="Cancel", command=self.destroy).pack(side=tk.RIGHT, padx=4)
+        ttk.Button(btn_box, text="Add All to Queue", command=self._done).pack(side=tk.RIGHT, padx=4)
+
+    def _browse(self):
+        d = filedialog.askdirectory(initialdir=self.dir_var.get())
+        if d:
+            self.dir_var.set(d)
+
+    def _done(self):
+        raw = self.text_area.get("1.0", tk.END).strip()
+        lines = [line.strip() for line in raw.splitlines() if line.strip().startswith("http://") or line.strip().startswith("https://")]
+        if not lines:
+            messagebox.showerror("Error", "No valid URLs found in the text box.")
+            return
+
+        self.results = {
+            "urls": lines,
+            "output_dir": self.dir_var.get(),
+            "connections": self.conn_var.get()
+        }
+        self.destroy()
+
+
 class AddDownloadDialog(tk.Toplevel):
     def __init__(self, parent, initial_url: str = ""):
         super().__init__(parent)
-        self.title("Enter new address to download")
+        self.title("Enter URL to Download - Dmans")
         self.geometry("540x290")
         self.resizable(False, False)
         self.transient(parent)
@@ -692,7 +767,6 @@ class AddDownloadDialog(tk.Toplevel):
             self.file_var.set(self._guess_filename(initial_url))
 
         self.url_var.trace_add("write", lambda *_: self.file_var.set(self._guess_filename(self.url_var.get())))
-
         self._build_ui()
 
     def _guess_filename(self, url: str) -> str:
@@ -760,13 +834,11 @@ class AddDownloadDialog(tk.Toplevel):
         self.destroy()
 
 
-# ------------------ IDM Dynamic Segments Visualizer Window ------------------
 class DownloadDetailDialog(tk.Toplevel):
-    """The iconic IDM download progress dialog with dynamic segmented connection monitor"""
     def __init__(self, parent, task: DownloadTask):
         super().__init__(parent)
         self.task = task
-        self.title(f"{task.filename} - PyIDM")
+        self.title(f"{task.filename} - Dmans")
         self.geometry("640x480")
         self.minsize(580, 420)
 
@@ -788,18 +860,15 @@ class DownloadDetailDialog(tk.Toplevel):
         self.lbl_resume = ttk.Label(top_f, text="Resume capability: Yes", font=("Segoe UI", 8), foreground="#007700")
         self.lbl_resume.pack(anchor=tk.W, pady=2)
 
-        # Main Progress Bar
         self.overall_bar = ttk.Progressbar(self, orient=tk.HORIZONTAL, mode="determinate")
         self.overall_bar.pack(fill=tk.X, padx=12, pady=6)
 
-        # Segment Visualizer Canvas (The famous IDM threads visualizer!)
-        seg_frame = ttk.LabelFrame(self, text=" IDM Dynamic Connection Segments (Real-Time Threads) ", padding=6)
+        seg_frame = ttk.LabelFrame(self, text=" Dmans Dynamic Connection Segments (Real-Time Threads) ", padding=6)
         seg_frame.pack(fill=tk.BOTH, expand=True, padx=12, pady=6)
 
         self.canvas = tk.Canvas(seg_frame, bg="#FFFFFF", highlightthickness=1, highlightbackground="#CCCCCC")
         self.canvas.pack(fill=tk.BOTH, expand=True)
 
-        # Buttons
         btn_box = ttk.Frame(self, padding=10)
         btn_box.pack(fill=tk.X)
 
@@ -843,7 +912,6 @@ class DownloadDetailDialog(tk.Toplevel):
             self.lbl_status.config(text="Status: Download Complete!", foreground="#008800")
             self.btn_pause.config(state=tk.DISABLED)
 
-        # Draw the iconic IDM Segment visualizer bars on Canvas
         self._render_canvas_segments(prog["segments"], prog["total_size"])
 
     def _render_canvas_segments(self, segments: list, total_size: int):
@@ -860,21 +928,17 @@ class DownloadDetailDialog(tk.Toplevel):
             y1 = y_offset + (i * row_h)
             y2 = y1 + row_h - 4
 
-            # Background bar (un-downloaded region)
             self.canvas.create_rectangle(10, y1, w - 80, y2, fill="#E8ECEF", outline="#B0B8C0")
 
-            # Downloaded portion
             seg_tot = seg["end"] - seg["start"] + 1
             seg_dl = seg["current"] - seg["start"]
             pct = (seg_dl / seg_tot) if seg_tot > 0 else 0.0
             fill_w = 10 + int((w - 90) * pct)
 
-            # IDM classic striped cyan/blue gradient fill
-            color = "#1E88E5" if seg["status"] == "DOWNLOADING" else ("#43A047" if seg["status"] == "COMPLETED" else "#FFA000")
+            color = "#0284C7" if seg["status"] == "DOWNLOADING" else ("#16A34A" if seg["status"] == "COMPLETED" else "#EAB308")
             if fill_w > 10:
                 self.canvas.create_rectangle(10, y1, fill_w, y2, fill=color, outline="")
 
-            # Text label: Thread ID & %
             lbl_text = f"Thread #{seg['seg_id']+1}: {pct*100:.0f}%"
             self.canvas.create_text(w - 70, (y1 + y2) // 2, text=lbl_text, font=("Segoe UI", 8), anchor="w")
 
@@ -882,7 +946,7 @@ class DownloadDetailDialog(tk.Toplevel):
 class DownloadCompleteDialog(tk.Toplevel):
     def __init__(self, parent, filename: str, filepath: str, filesize: int):
         super().__init__(parent)
-        self.title("Download Complete - PyIDM")
+        self.title("Download Complete - Dmans")
         self.geometry("460x170")
         self.resizable(False, False)
         self.filepath = filepath
@@ -891,7 +955,7 @@ class DownloadCompleteDialog(tk.Toplevel):
         f = ttk.Frame(self, padding=14)
         f.pack(fill=tk.BOTH, expand=True)
 
-        ttk.Label(f, text="Download Finished Successfully!", font=("Segoe UI", 10, "bold"), foreground="#008800").pack(anchor=tk.W, pady=2)
+        ttk.Label(f, text="Download Finished Successfully!", font=("Segoe UI", 10, "bold"), foreground="#16A34A").pack(anchor=tk.W, pady=2)
         ttk.Label(f, text=f"File: {filename}", font=("Segoe UI", 9)).pack(anchor=tk.W, pady=2)
         ttk.Label(f, text=f"Saved To: {filepath}", font=("Segoe UI", 8), foreground="#555555").pack(anchor=tk.W, pady=2)
 
@@ -915,5 +979,5 @@ class DownloadCompleteDialog(tk.Toplevel):
 
 
 if __name__ == "__main__":
-    app = PyIDMApp()
+    app = DmansApp()
     app.mainloop()

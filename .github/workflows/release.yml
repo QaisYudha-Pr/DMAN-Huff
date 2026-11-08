@@ -1,4 +1,4 @@
-name: Build and Release PyIDM
+name: Build and Release Dmans
 
 on:
   push:
@@ -23,21 +23,20 @@ jobs:
 
       - name: Build Executables
         run: |
-          pyinstaller --onefile --noconsole --name PyIDM idm_gui.py
-          pyinstaller --onefile --name idm idm_cli.py
+          pyinstaller --onefile --noconsole --version-file version_info.txt --name Dmans dmans_gui.py
+          pyinstaller --onefile --version-file version_info.txt --name dmans dmans_cli.py
           & "C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /target:winexe /out:dist\Installer.exe Installer.cs
           & "C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /target:winexe /out:dist\Uninstall.exe Uninstaller.cs
           Copy-Item -Recurse browser_extension dist\browser_extension
-          Compress-Archive -Path dist\* -DestinationPath PyIDM-Release.zip
+          Compress-Archive -Path dist\* -DestinationPath Dmans-Release.zip
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            PyIDM-Release.zip
+            Dmans-Release.zip
             dist/Installer.exe
-            dist/PyIDM.exe
-            dist/idm.exe
+            dist/Dmans.exe
+            dist/dmans.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-

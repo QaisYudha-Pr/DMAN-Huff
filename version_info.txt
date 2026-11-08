@@ -1,0 +1,35 @@
+# UTF-8
+#
+# Dmans Windows Version Information Resource
+VSVersionInfo(
+  ffi=FixedFileInfo(
+    filevers=(1, 0, 0, 0),
+    prodvers=(1, 0, 0, 0),
+    mask=0x3f,
+    flags=0x0,
+    OS=0x40004,
+    fileType=0x1,
+    subtype=0x0,
+    date=(0, 0)
+  ),
+  kids=[
+    StringFileInfo(
+      [
+        StringTable(
+          '040904b0',
+          [
+            StringStruct('CompanyName', 'Dmans Open Source Project'),
+            StringStruct('FileDescription', 'Dmans Download Accelerator'),
+            StringStruct('FileVersion', '1.0.0.0'),
+            StringStruct('InternalName', 'Dmans'),
+            StringStruct('LegalCopyright', 'Copyright (c) 2026 Dmans Contributors'),
+            StringStruct('OriginalFilename', 'Dmans.exe'),
+            StringStruct('ProductName', 'Dmans Download Accelerator'),
+            StringStruct('ProductVersion', '1.0.0.0')
+          ]
+        )
+      ]
+    ),
+    VarFileInfo([VarStruct('Translation', [1033, 1200])])
+  ]
+)

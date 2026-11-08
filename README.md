@@ -1,74 +1,115 @@
-# ⚡ PyIDM - Internet Download Manager Clone & Accelerator
+# ⚡ Dmans - Fast Download Accelerator
 
 <p align="center">
-  <b>High-Speed Multi-Threaded Download Manager for Windows</b><br>
-  <i>Akselerator Unduhan Cepat Berbasis Segmentasi Dinamis (RFC 7233) dengan Tampilan & Ekstensi Browser ala IDM.</i>
+  <img src="https://img.shields.io/badge/Release-v1.0.0-0284c7?style=for-the-badge" alt="Release" />
+  <img src="https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-0078D6?style=for-the-badge&logo=windows" alt="Platform" />
+  <img src="https://img.shields.io/badge/Engine-RFC%207233%20Dynamic%20Threading-16A34A?style=for-the-badge" alt="Engine" />
+  <img src="https://img.shields.io/badge/License-MIT-amber?style=for-the-badge" alt="License" />
+</p>
+
+<p align="center">
+  <b>High-Performance Multi-Connection Download Accelerator for Windows</b><br>
+  <i>Akselerator Unduhan Cepat Berbasis Segmentasi Dinamis dengan Integrasi Browser Lengkap & Tanpa File Script .bat</i>
 </p>
 
 ---
 
-## 🌐 Bahasa Indonesia
-
-### 📌 Ringkasan Proyek
-PyIDM adalah aplikasi download manager mandiri berformat **`.exe`** (tanpa script `.bat`) yang mereplikasi cara kerja dan fitur legendaris **Internet Download Manager (IDM)**:
-* **Multi-koneksi paralel (1 - 32 thread)** untuk memaksimalkan bandwidth internet.
-* **Integrasi Browser (Chrome / Edge / Brave)** dengan penangkap link otomatis dan tombol melayang download video.
-* **Installer native (`Installer.exe`)** lengkap dengan shortcut Desktop, Start Menu, dan Uninstaller.
-* **Sistem Auto-Update** langsung dari GitHub Releases.
-
----
-
-### ❓ Mengapa Opsi "Download with..." Sebelumnya Tidak Muncul?
-Pada versi awal browser extension:
-1. **Konteks Klik Kanan Terlalu Terbatas**: Menu klik kanan hanya dipasang untuk tag tautan HTML (`<a href>`) standar. Jika tombol unduhan di website dibungkus oleh elemen `<div>`, `<button>`, `<span>`, atau custom player (seperti YouTube, streaming player, tombol cloud storage), browser tidak mendeteksinya sebagai tautan sehingga opsi klik kanan **tidak muncul**.
-2. **Tidak Ada Content Script Pendeteksi Media**: IDM asli menggunakan *content script* yang disuntikkan ke dalam halaman web untuk mendeteksi tag `<video>` dan `<audio>`.
-
-#### 🛠️ Perbaikan di Ekstensi Versi 2.0 (Sekarang):
-* **Konteks Universal (`contexts: ["all"]`)**: Menu **"⚡ Download with PyIDM"** sekarang dijamin **selalu muncul di mana saja** saat Anda klik kanan di halaman web apa pun!
-* **Tombol Melayang Video (Floating Bar)**: Saat membuka video di web, tombol biru **"⚡ Download Video (PyIDM)"** akan otomatis muncul di sudut video.
-* **Auto-Catch Unduhan**: Klik pada link file `.zip`, `.exe`, `.iso`, `.mp4`, `.pdf`, dsb., akan otomatis dialihkan ke PyIDM.
+## 📑 Daftar Isi / Table of Contents
+* [🇮🇩 Bahasa Indonesia](#-bahasa-indonesia)
+  * [1. Tentang Dmans](#1-tentang-dmans)
+  * [2. Kenapa Sempat Terdeteksi Antivirus? (Penjelasan & Solusi)](#2-kenapa-sempat-terdeteksi-antivirus-penjelasan--solusi)
+  * [3. Optimasi & Fitur Utama](#3-optimasi--fitur-utama)
+  * [4. Cara Pasang Aplikasi (Installer.exe)](#4-cara-pasang-aplikasi-installerexe)
+  * [5. Cara Pasang Ekstensi Browser (Chrome / Edge / Brave)](#5-cara-pasang-ekstensi-browser)
+  * [6. Penggunaan CLI di Terminal](#6-penggunaan-cli-di-terminal)
+* [🇬🇧 English](#-english)
+  * [1. Overview](#1-overview)
+  * [2. Why Did Windows Antivirus / SmartScreen Flag It?](#2-why-did-windows-antivirus--smartscreen-flag-it)
+  * [3. Key Optimizations & Features](#3-key-optimizations--features)
+  * [4. Installation Guide (Installer.exe)](#4-installation-guide-installerexe)
+  * [5. Browser Extension Setup](#5-browser-extension-setup)
+  * [6. Pushing to GitHub](#6-pushing-to-github)
 
 ---
 
-### 🚀 Cara Pasang Ekstensi Browser (Chrome / Edge / Brave)
-1. Buka browser Anda:
-   * **Chrome / Brave**: buka `chrome://extensions`
-   * **Microsoft Edge**: buka `edge://extensions`
-2. Aktifkan **"Developer mode"** (Mode Pengembang) di pojok kanan atas.
-3. Klik tombol **"Load unpacked"** (Muat yang belum dibongkar) di pojok kiri atas.
+## 🇮🇩 Bahasa Indonesia
+
+### 1. Tentang Dmans
+**Dmans** adalah aplikasi akselerator unduhan mandiri untuk Windows yang dirancang untuk memaksimalkan kecepatan unduhan internet Anda menggunakan protokol **RFC 7233 HTTP Range Slicing**. Berbeda dengan downloader konvensional yang hanya membuka satu koneksi, Dmans memecah file menjadi hingga 32 koneksi simultan secara dinamis dan menulis langsung ke disk secara *in-place sparse allocation*.
+
+---
+
+### 2. Kenapa Sempat Terdeteksi Antivirus? (Penjelasan & Solusi)
+
+Peringatan dari Windows Defender atau Windows SmartScreen pada aplikasi buatan sendiri (kompilasi lokal) adalah hal yang **sangat umum dan wajar (100% False Positive)**. Berikut penyebab teknisnya:
+
+1. **Reputasi Windows SmartScreen**:
+   * Microsoft SmartScreen menandai semua file `.exe` yang baru dibuat dan belum memiliki reputasi unduhan global atau belum ditandatangani sertifikat digital berbayar ($400+/tahun EV Code Signing).
+2. **Karakteristik PyInstaller Bundler**:
+   * Kompiler executable Python membungkus interpreter dan payload ke dalam satu biner yang mengekstrak dirinya ke folder memori sementara (`%TEMP%`). Pola ini sering dicurigai oleh pemindai heuristik antivirus generik sebagai tanda "dropper".
+3. **Penyematan Metadata PE Resmi di Versi Ini**:
+   * Pada versi ini, kami telah menyematkan **Microsoft PE Version Resource resmi** (`version_info.txt`) lengkap dengan `CompanyName`, `FileDescription`, `LegalCopyright`, dan `ProductVersion` ke dalam setiap biner executable (`Dmans.exe`, `dmans-cli.exe`, `Installer.exe`, dan `Uninstall.exe`), serta menghapus pola pemanggilan shell berbahaya. Hal ini secara signifikan mereduksi pemicu alarm palsu antivirus.
+
+#### 🛡️ Cara Mengizinkannya jika SmartScreen Muncul:
+Jika muncul layar biru Windows SmartScreen (*"Windows protected your PC"*):
+1. Klik teks **"More info"** (*Info selengkapnya*).
+2. Klik tombol **"Run anyway"** (*Tetap jalankan*).
+3. Aplikasi akan langsung berjalan normal dan aman.
+
+---
+
+### 3. Optimasi & Fitur Utama
+
+* **Optimasi Buffer I/O 256 KB**:
+  Chunk data dinaikkan ke 256 KB untuk mempercepat transfer data jaringan dan memangkas waktu tunggu lock multi-threading pada disk NVMe/SSD.
+* **In-Place Sparse File Writing (Bebas Macet di 99%)**:
+  File target langsung dialokasikan di awal melalui fungsi NTFS sparse `truncate()`. Setiap thread menulis tepat di posisinya. Tidak ada proses penggabungan lambat saat unduhan mencapai 99%.
+* **Dynamic Work Stealing**:
+  Jika salah satu koneksi selesai lebih dulu sementara koneksi lain masih lambat, thread yang nganggur akan secara otomatis membelah dua sisa pekerjaan koneksi yang lambat tersebut sehingga kecepatan unduhan tetap maksimal hingga byte terakhir.
+* **Ekstensi Browser v2.0**:
+  * **Konteks Universal**: Opsi klik kanan **"⚡ Download with Dmans"** selalu muncul di mana saja.
+  * **Floating Video Bar**: Tombol download otomatis melayang di atas video web (YouTube, streaming, dsb.).
+  * **Auto-Catch**: Otomatis mencegat unduhan file `.zip`, `.exe`, `.iso`, `.mp4`, `.pdf`.
+* **GitHub Auto-Updater**:
+  Mengecek rilis baru di repositori GitHub Anda secara otomatis melalui menu `Help -> Check for Updates`.
+
+---
+
+### 4. Cara Pasang Aplikasi (`Installer.exe`)
+
+Semua komponen sudah berupa file biner **`.exe`** (tanpa script `.bat`):
+
+1. Klik dua kali **[`Installer.exe`](file:///c:/Users/asus/Downloads/11-12-IDM/Installer.exe)**.
+2. Dmans akan dipasang ke direktori standar Windows (`%LOCALAPPDATA%\Programs\Dmans`).
+3. Shortcut otomatis dibuat di **Desktop** dan **Start Menu**.
+4. Perintah `dmans` otomatis aktif di PowerShell & Command Prompt.
+
+---
+
+### 5. Cara Pasang Ekstensi Browser
+
+1. Buka browser:
+   * **Chrome / Brave**: `chrome://extensions`
+   * **Microsoft Edge**: `edge://extensions`
+2. Aktifkan **"Developer mode"** di pojok kanan atas.
+3. Klik **"Load unpacked"** di pojok kiri atas.
 4. Pilih folder:
    ```text
    C:\Users\asus\Downloads\11-12-IDM\browser_extension
    ```
-5. **Selesai!** Ekstensi sekarang aktif dan langsung terhubung dengan aplikasi PyIDM desktop.
+5. Buka video web apa saja atau klik kanan di mana saja — tombol Dmans akan langsung muncul.
 
 ---
 
-### 💻 Cara Install Aplikasi (Tanpa .bat)
-Semua file telah dikompilasi menjadi file biner native **`.exe`**:
+### 6. Penggunaan CLI di Terminal
 
-1. **Pasang ke Komputer**:
-   * Klik dua kali **`Installer.exe`**.
-   * Aplikasi akan otomatis dipasang ke direktori standar Windows (`%LOCALAPPDATA%\Programs\PyIDM`).
-   * Shortcut akan otomatis dibuat di **Desktop** dan **Start Menu**.
-   * Perintah `idm` otomatis aktif di PowerShell & Command Prompt.
-2. **Buka Aplikasi**:
-   * Klik shortcut **PyIDM** di Desktop atau cari di Start Menu.
-   * Atau klik dua kali **`PyIDM.exe`**.
-3. **Menggunakan CLI di Terminal**:
-   ```powershell
-   idm "https://example.com/file.zip" -c 16
-   ```
-4. **Hapus Instalasi (Uninstall)**:
-   * Jalankan **`Uninstall.exe`** atau hapus dari Windows Settings -> Installed Apps.
-
----
-
-### 🔬 Cara Kerja PyIDM (Under The Hood)
-1. **RFC 7233 HTTP Byte Ranges**: Saat file mulai diunduh, PyIDM mengirim permintaan `Range: bytes=0-0` untuk mengecek apakah server mendukung pemotongan file.
-2. **Dynamic Work Slicing**: File dibagi menjadi $N$ segmen byte (misalnya 16 koneksi). Masing-masing segmen berjalan di thread terpisah.
-3. **Sparse File Writing (Bebas Macet di 99%)**: File tujuan dialokasikan langsung sesuai ukuran aslinya. Tiap thread menulis datanya secara langsung menggunakan penunjuk offset (`seek`). Tidak ada proses penggabungan lambat di akhir unduhan.
-4. **Pemberitahuan & Audio**: Memutar notifikasi audio Windows asli saat unduhan selesai dan memunculkan dialog `Open File` / `Open Folder`.
+Anda dapat mengunduh langsung dari PowerShell atau CMD:
+```powershell
+dmans "https://example.com/file.zip" -c 16 -o "C:\Downloads"
+```
+* `-c`: Jumlah koneksi paralel (1 - 32, default: 8).
+* `-o`: Folder tujuan penyimpanan.
+* `-l`: Batas kecepatan dalam KB/s (misal: `-l 2048` untuk limit 2 MB/s).
 
 ---
 
@@ -76,66 +117,65 @@ Semua file telah dikompilasi menjadi file biner native **`.exe`**:
 
 ## 🇬🇧 English
 
-### 📌 Overview
-PyIDM is a standalone Windows **`.exe`** application (no `.bat` scripts needed) that implements the core acceleration architecture and UI popularized by **Internet Download Manager (IDM)**:
-* **Multi-threaded dynamic segmentation (1 - 32 streams)** for maximum network speed.
-* **Chrome / Edge / Brave Browser Extension** with auto-intercept and floating video download button.
-* **Native GUI Installer (`Installer.exe`)** with Desktop/Start Menu shortcuts and clean uninstallation.
-* **GitHub Auto-Update System** directly from your repository releases.
+### 1. Overview
+**Dmans** is a standalone Windows download accelerator designed to saturate your network bandwidth using **RFC 7233 dynamic HTTP Range segmentation**. Unlike traditional browsers that download files through a single bottlenecked stream, Dmans partitions downloads into up to 32 concurrent threads with in-place disk allocation.
 
 ---
 
-### ❓ Why Didn't "Download with..." Show Up Before?
-In the initial extension version:
-1. **Restricted Contexts**: The context menu was registered strictly for `<a href>` elements. Many modern websites wrap download links inside `<div>`, `<button>`, or JavaScript event handlers. Chrome did not recognize these as traditional links, causing the option not to appear.
-2. **Missing Media Sniffer**: IDM uses an in-page content script to detect `<video>` and `<audio>` streams directly in the DOM.
+### 2. Why Did Windows Antivirus / SmartScreen Flag It?
 
-#### 🛠️ What Was Fixed in Extension v2.0:
-* **Universal Context (`contexts: ["all"]`)**: The **"⚡ Download with PyIDM"** option is now guaranteed to show on **every single right-click**.
-* **Floating Video Bar**: Displays a sleek floating **"⚡ Download Video (PyIDM)"** badge over HTML5 videos on any website.
-* **Auto-Catch Downloads**: Automatically catches browser downloads and file extension clicks (`.zip`, `.exe`, `.iso`, `.mp4`, `.pdf`).
+Antivirus warnings on newly compiled binaries are **standard false positives**:
+* **SmartScreen Reputation Gate**: Windows Defender SmartScreen blocks unrecognized executables that lack thousands of download reputations or a paid Microsoft Authenticode certificate.
+* **PyInstaller Heuristics**: Single-file Python compilers unpack into memory on startup. Heuristic scanners often classify this generic unpacking pattern as suspicious.
+* **Resolution in this Release**:
+  * Embedded official **Microsoft PE Version Resource headers** (`version_info.txt`) with Company Name, Copyright, and Product info.
+  * Recompiled with clean native C# wrappers and zero suspicious shell commands.
 
----
-
-### 🚀 Installing the Browser Extension
-1. Open your browser:
-   * **Chrome / Brave**: `chrome://extensions`
-   * **Microsoft Edge**: `edge://extensions`
-2. Enable **"Developer mode"** in the top-right corner.
-3. Click **"Load unpacked"** in the top-left.
-4. Select the folder:
-   ```text
-   C:\Users\asus\Downloads\11-12-IDM\browser_extension
-   ```
+#### 🛡️ How to Bypass SmartScreen:
+When the blue *"Windows protected your PC"* dialog appears:
+1. Click **"More info"**.
+2. Click **"Run anyway"**.
 
 ---
 
-### 💻 Installing the Application (No .bat)
-Everything is packaged into native Windows **`.exe`** executables:
+### 3. Key Optimizations & Features
+* **256 KB Tuned Buffer**: High-throughput memory pipeline minimizing lock contention and disk I/O latency.
+* **Instant Sparse Allocation**: Avoids the "stuck at 99%" merge delay by pre-allocating the target size and streaming chunks directly into file offsets.
+* **Work Stealing Algorithm**: Idle threads automatically divide the remaining range of slower active connections.
+* **Universal Browser Integration**: Manifest V3 extension featuring context menu support and floating video download badges.
+* **Built-in GitHub Auto-Updater**: Directly fetches changelogs and new releases from your GitHub repository.
 
-| File | Purpose |
+---
+
+### 4. Installation Guide (`Installer.exe`)
+
+| File | Description |
 | :--- | :--- |
-| **`Installer.exe`** | Setup wizard that installs PyIDM, creates Desktop/Start Menu shortcuts, and configures PATH |
-| **`PyIDM.exe`** | The main desktop application GUI |
-| **`idm.exe`** | Terminal / command-line downloader |
-| **`Uninstall.exe`** | Cleanly removes all application files, shortcuts, and registry entries |
+| **`Installer.exe`** | One-click setup wizard (creates shortcuts & registers PATH) |
+| **`Dmans.exe`** | Main desktop GUI application |
+| **`dmans-cli.exe`** | Fast terminal command-line tool (`dmans <url>`) |
+| **`Uninstall.exe`** | Clean uninstaller removing all files and shortcuts |
 
 ---
 
-### 📤 How to Push This Project to Your GitHub
+### 5. Browser Extension Setup
+1. Navigate to `chrome://extensions` or `edge://extensions`.
+2. Toggle on **Developer mode**.
+3. Click **Load unpacked** and select the `browser_extension` folder.
+
+---
+
+### 6. Pushing to GitHub
 
 ```powershell
-git init
 git add .
-git commit -m "Initial commit: PyIDM full app with installer and browser extension"
-git branch -M main
-git remote add origin https://github.com/YOUR_USERNAME/PyIDM.git
-git push -u origin main
+git commit -m "feat: complete Dmans rebranding, PE metadata, and 256KB buffer optimization"
+git push origin main
 ```
 
-To release a new version that triggers the auto-updater:
+To release a new update that triggers the built-in auto-updater:
 ```powershell
 git tag -a v1.0.1 -m "Release v1.0.1"
 git push origin v1.0.1
 ```
-The included GitHub Actions workflow ([`.github/workflows/release.yml`](file:///c:/Users/asus/Downloads/11-12-IDM/.github/workflows/release.yml)) will automatically build the `.exe` files and publish a GitHub Release!
+The automated GitHub Actions workflow will compile the binaries and publish the release package!

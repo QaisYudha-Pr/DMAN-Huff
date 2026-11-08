@@ -1,23 +1,22 @@
 """
-IDM Engine (Internet Download Manager Core)
-Features:
-- RFC 7233 HTTP Range Multi-Connection Download
-- Dynamic Segmentation & Work Allocation
-- In-place File Pre-allocation (No slow file concatenation)
-- Resume & Pause support with JSON metadata persistence
-- Detailed per-connection metrics (speed, bytes, status)
+Dmans Engine - High-Performance Multi-Connection Download Accelerator
+Optimized for high-speed streaming, dynamic segmentation, and low disk latency.
 """
 
 import os
 import sys
 import json
 import time
+import socket
 import urllib.request
 import urllib.parse
 import threading
 from typing import Dict, List, Optional, Callable
 
-DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+# Set global socket options for high-throughput networking
+socket.setdefaulttimeout(30)
+DEFAULT_USER_AGENT = "Dmans/1.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+OPTIMAL_CHUNK_SIZE = 262144  # 256 KB chunks for high throughput and reduced lock contention
 
 class Segment:
     def __init__(self, seg_id: int, start: int, end: int, current: int = None):
@@ -25,7 +24,7 @@ class Segment:
         self.start = start
         self.end = end
         self.current = current if current is not None else start
-        self.status = "PENDING" # PENDING, DOWNLOADING, COMPLETED, FAILED
+        self.status = "PENDING"  # PENDING, DOWNLOADING, COMPLETED, FAILED
 
     @property
     def total_bytes(self) -> int:
@@ -66,7 +65,7 @@ class DownloadTask:
         output_dir: str = ".",
         custom_filename: Optional[str] = None,
         num_connections: int = 8,
-        chunk_size: int = 65536,
+        chunk_size: int = OPTIMAL_CHUNK_SIZE,
         max_speed_kb: Optional[int] = None,
         progress_callback: Optional[Callable] = None
     ):
@@ -74,15 +73,15 @@ class DownloadTask:
         self.output_dir = os.path.abspath(output_dir)
         self.num_connections = max(1, min(num_connections, 32))
         self.chunk_size = chunk_size
-        self.max_speed_kb = max_speed_kb # e.g. 1024 for 1 MB/s limit
+        self.max_speed_kb = max_speed_kb
         self.progress_callback = progress_callback
 
         self.total_size = 0
         self.supports_range = False
         self.filename = custom_filename or self._extract_filename(url)
         self.final_path = os.path.join(self.output_dir, self.filename)
-        self.part_path = self.final_path + ".idmpart"
-        self.meta_path = self.final_path + ".idmmeta"
+        self.part_path = self.final_path + ".dmpart"
+        self.meta_path = self.final_path + ".dmmeta"
 
         self.segments: List[Segment] = []
         self.is_paused = False
@@ -120,7 +119,6 @@ class DownloadTask:
         parsed = urllib.parse.urlparse(url)
         name = os.path.basename(parsed.path)
         if not name or "." not in name:
-            # Query param filename or default
             qs = urllib.parse.parse_qs(parsed.query)
             if "filename" in qs:
                 name = qs["filename"][0]
@@ -129,12 +127,13 @@ class DownloadTask:
         return urllib.parse.unquote(name)
 
     def probe(self):
-        """Detect file length and Range support via HTTP HEAD / GET"""
+        """Detect file length and Range support via HTTP HEAD or GET"""
         req = urllib.request.Request(self.url, method="HEAD")
         req.add_header("User-Agent", DEFAULT_USER_AGENT)
+        req.add_header("Connection", "keep-alive")
 
         try:
-            with urllib.request.urlopen(req, timeout=10) as resp:
+            with urllib.request.urlopen(req, timeout=12) as resp:
                 headers = {k.lower(): v for k, v in resp.headers.items()}
                 if "content-length" in headers:
                     self.total_size = int(headers["content-length"])
@@ -143,14 +142,14 @@ class DownloadTask:
         except Exception:
             pass
 
-        # If HEAD didn't yield Range or Content-Length, probe with Range: bytes=0-0
         if not self.supports_range:
             try:
                 probe_req = urllib.request.Request(self.url, headers={
                     "User-Agent": DEFAULT_USER_AGENT,
-                    "Range": "bytes=0-0"
+                    "Range": "bytes=0-0",
+                    "Connection": "keep-alive"
                 })
-                with urllib.request.urlopen(probe_req, timeout=10) as resp:
+                with urllib.request.urlopen(probe_req, timeout=12) as resp:
                     if resp.status == 206:
                         self.supports_range = True
                         cr = resp.headers.get("Content-Range", "")
@@ -175,8 +174,11 @@ class DownloadTask:
                 "num_connections": self.num_connections,
                 "segments": [seg.to_dict() for seg in self.segments]
             }
-            with open(self.meta_path, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2)
+            try:
+                with open(self.meta_path, "w", encoding="utf-8") as f:
+                    json.dump(data, f, indent=2)
+            except Exception:
+                pass
 
     def _load_metadata(self) -> bool:
         if not os.path.exists(self.meta_path) or not os.path.exists(self.part_path):
@@ -199,18 +201,15 @@ class DownloadTask:
         os.makedirs(self.output_dir, exist_ok=True)
 
         if not self.supports_range or self.total_size <= 0:
-            # Single stream fallback
             self.segments = [Segment(0, 0, self.total_size - 1 if self.total_size > 0 else 0)]
             with open(self.part_path, "wb") as f:
                 pass
             return
 
-        # Pre-allocate sparse file
+        # Fast NTFS sparse file allocation via truncate
         with open(self.part_path, "wb") as f:
-            f.seek(self.total_size - 1)
-            f.write(b"\0")
+            f.truncate(self.total_size)
 
-        # Partition ranges evenly
         part_size = self.total_size // self.num_connections
         self.segments = []
         for i in range(self.num_connections):
@@ -221,10 +220,8 @@ class DownloadTask:
         self._save_metadata()
 
     def _find_and_split_work(self) -> Optional[Segment]:
-        """Dynamic Work Stealing (IDM Algorithm):
-        When a connection finishes early, it dynamically splits the slowest active segment
-        in half so all connections stay saturated until the download completes."""
-        MIN_SPLIT_THRESHOLD = 512 * 1024  # 512 KB
+        """Dynamic Work Stealing: Splitting the largest remaining portion in half"""
+        MIN_SPLIT_THRESHOLD = 1048576  # 1 MB threshold for high efficiency
         with self.split_lock:
             best_seg = None
             max_remaining = 0
@@ -234,7 +231,6 @@ class DownloadTask:
                     best_seg = seg
 
             if best_seg and max_remaining >= MIN_SPLIT_THRESHOLD:
-                # Divide the remaining range in half
                 split_point = best_seg.current + (max_remaining // 2)
                 old_end = best_seg.end
                 best_seg.end = split_point - 1
@@ -251,7 +247,6 @@ class DownloadTask:
             self._download_segment(current_segment, file_handle)
             if self.is_paused or self.is_cancelled:
                 break
-            # Dynamically steal work from any active lagging segment
             current_segment = self._find_and_split_work()
 
     def _download_segment(self, segment: Segment, file_handle):
@@ -262,7 +257,8 @@ class DownloadTask:
         segment.status = "DOWNLOADING"
         req = urllib.request.Request(self.url, headers={
             "User-Agent": DEFAULT_USER_AGENT,
-            "Range": f"bytes={segment.current}-{segment.end}"
+            "Range": f"bytes={segment.current}-{segment.end}",
+            "Connection": "keep-alive"
         })
 
         retries = 3
@@ -281,7 +277,6 @@ class DownloadTask:
                             file_handle.write(chunk)
                             segment.current += len(chunk)
 
-                        # Speed Limiter (Token bucket rate limiter)
                         if self.max_speed_kb and self.max_speed_kb > 0:
                             target_bps = (self.max_speed_kb * 1024) / max(1, self.num_connections)
                             expected_time = len(chunk) / target_bps
@@ -300,7 +295,10 @@ class DownloadTask:
                 time.sleep(1)
 
     def _single_stream_worker(self, file_handle):
-        req = urllib.request.Request(self.url, headers={"User-Agent": DEFAULT_USER_AGENT})
+        req = urllib.request.Request(self.url, headers={
+            "User-Agent": DEFAULT_USER_AGENT,
+            "Connection": "keep-alive"
+        })
         with urllib.request.urlopen(req, timeout=20) as resp:
             while not self.is_paused and not self.is_cancelled:
                 t0 = time.time()
@@ -371,9 +369,8 @@ class DownloadTask:
                 t.start()
                 self.workers = threads
 
-            # Monitor loop
             while any(t.is_alive() for t in threads):
-                time.sleep(0.4)
+                time.sleep(0.35)
                 now = time.time()
                 dt = now - self.last_checked_time
                 if dt > 0:
@@ -389,7 +386,6 @@ class DownloadTask:
             for t in threads:
                 t.join()
 
-        # Check if completed
         all_done = all(seg.is_finished or seg.status == "COMPLETED" for seg in self.segments)
         if all_done and not self.is_paused and not self.is_cancelled:
             if os.path.exists(self.final_path):
@@ -424,4 +420,3 @@ class DownloadTask:
     def cancel(self):
         self.is_cancelled = True
         self.status = "Cancelled"
-

@@ -62,10 +62,10 @@
   </style>
 </head>
 <body>
-  <h2>⚡ PyIDM Integration</h2>
+  <h2>⚡ Dmans Integration</h2>
   <div class="status-badge">
     <div id="dot" class="dot"></div>
-    <span id="status-text">Checking PyIDM App...</span>
+    <span id="status-text">Checking Dmans App...</span>
   </div>
 
   <div class="toggle-row">
@@ -80,7 +80,7 @@
 
   <div class="help-text">
     💡 <b>Cara Pakai / How to Use:</b><br>
-    1. Klik kanan di mana saja ➔ <b>"⚡ Download with PyIDM"</b><br>
+    1. Klik kanan di mana saja ➔ <b>"⚡ Download with Dmans"</b><br>
     2. Tombol download otomatis muncul di atas video web!
   </div>
 
@@ -90,19 +90,17 @@
     const toggle = document.getElementById('intercept-toggle');
     const linksToggle = document.getElementById('links-toggle');
 
-    // Check backend status
     fetch('http://127.0.0.1:18888/ping')
       .then(r => r.json())
       .then(d => {
         dot.className = 'dot online';
-        statusText.textContent = 'PyIDM Engine: Connected';
+        statusText.textContent = 'Dmans Engine: Connected';
       })
       .catch(() => {
         dot.className = 'dot offline';
-        statusText.textContent = 'PyIDM Engine: Offline (Buka PyIDM)';
+        statusText.textContent = 'Dmans Engine: Offline (Open Dmans)';
       });
 
-    // Load settings
     chrome.storage.local.get(['autoIntercept', 'interceptLinks'], res => {
       toggle.checked = res.autoIntercept !== false;
       linksToggle.checked = res.interceptLinks !== false;

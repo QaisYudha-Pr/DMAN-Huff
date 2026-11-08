@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "PyIDM Integration Module",
+  "name": "Dmans Download Integration",
   "version": "2.0.0",
-  "description": "Seamlessly intercepts downloads and detects web video/audio for PyIDM Download Manager.",
+  "description": "Fast download integration and media sniffer for Dmans Download Accelerator.",
   "permissions": [
     "contextMenus",
     "downloads",
@@ -26,6 +26,6 @@
   ],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "PyIDM Integration"
+    "default_title": "Dmans Integration"
   }
 }

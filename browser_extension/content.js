@@ -1,4 +1,4 @@
-// PyIDM Content Script - Media Sniffer & Floating Download Bar
+// Dmans Content Script - Media Sniffer & Floating Download Bar
 
 (function () {
   const DOWNLOAD_EXTS = [
@@ -11,12 +11,10 @@
 
   let lastTargetUrl = "";
 
-  // 1. Right-click helper: capture link/media URL of whatever element was right-clicked
   document.addEventListener("contextmenu", (e) => {
     let el = e.target;
     let url = "";
 
-    // Search element or parents for href or src
     while (el && el !== document.body) {
       if (el.tagName === "A" && el.href) {
         url = el.href;
@@ -34,7 +32,6 @@
     }
 
     if (!url) {
-      // Check current page selection or fallback to location
       url = window.location.href;
     }
 
@@ -42,7 +39,6 @@
     chrome.runtime.sendMessage({ type: "UPDATE_LAST_RIGHTCLICK_URL", url: url });
   }, true);
 
-  // 2. Intercept direct download link clicks
   document.addEventListener("click", (e) => {
     let link = e.target.closest("a");
     if (!link || !link.href) return;
@@ -51,9 +47,8 @@
     let isDownloadable = DOWNLOAD_EXTS.some((ext) => href.endsWith(ext));
 
     if (isDownloadable) {
-      // Check if extension auto-catch is enabled
       chrome.storage.local.get(["interceptLinks"], (res) => {
-        if (res.interceptLinks !== false) { // Default to true
+        if (res.interceptLinks !== false) {
           e.preventDefault();
           e.stopPropagation();
           chrome.runtime.sendMessage({
@@ -65,12 +60,11 @@
     }
   }, true);
 
-  // 3. IDM Floating Video / Audio Bar
   function attachVideoButtons() {
     const mediaElements = document.querySelectorAll("video, audio");
     mediaElements.forEach((media) => {
-      if (media.dataset.pyidmAttached) return;
-      media.dataset.pyidmAttached = "true";
+      if (media.dataset.dmansAttached) return;
+      media.dataset.dmansAttached = "true";
 
       const parent = media.parentElement;
       if (!parent) return;
@@ -84,7 +78,7 @@
       bar.className = "pyidm-video-bar";
       bar.innerHTML = `
         <svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
-        <span>Download Video (PyIDM)</span>
+        <span>Download with Dmans</span>
       `;
 
       bar.addEventListener("click", (e) => {
@@ -102,11 +96,11 @@
           url: streamUrl
         });
 
-        bar.innerHTML = `<span>✓ Sent to PyIDM</span>`;
+        bar.innerHTML = `<span>✓ Sent to Dmans</span>`;
         setTimeout(() => {
           bar.innerHTML = `
             <svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
-            <span>Download Video (PyIDM)</span>
+            <span>Download with Dmans</span>
           `;
         }, 2000);
       });
@@ -115,8 +109,6 @@
     });
   }
 
-  // Periodic scan for dynamically loaded video players (like YouTube/Netflix/Vimeo/HTML5)
   setInterval(attachVideoButtons, 2000);
   attachVideoButtons();
 })();
-

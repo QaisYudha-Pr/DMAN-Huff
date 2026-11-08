@@ -1,7 +1,7 @@
 """
-PyIDM Version & Repository Information
+Dmans - Version & Application Information
 """
 
 VERSION = "1.0.0"
-APP_NAME = "PyIDM"
-DEFAULT_GITHUB_REPO = "QaisYudha-Pr/Dman-Huff"  # Replace with your actual GitHub username/repo
+APP_NAME = "Dmans"
+DEFAULT_GITHUB_REPO = "user/dmans"

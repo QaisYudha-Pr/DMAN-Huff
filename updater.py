@@ -172,7 +172,7 @@ def download_and_extract_update(download_url: str, target_dir: str, progress_cal
         # Copy updated files over target_dir
         import shutil
         for item in os.listdir(source_dir):
-            if item.startswith(".") or item in ["downloads_db.json", "config.json"]:
+            if item.startswith(".") or item in ["dmans_db.json", "config.json"]:
                 # Preserve user database and custom config!
                 continue
             s = os.path.join(source_dir, item)
