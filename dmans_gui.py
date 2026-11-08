@@ -42,6 +42,21 @@ def get_app_dir():
         return os.path.dirname(sys.executable)
     return os.path.dirname(os.path.abspath(__file__))
 
+def force_bring_to_front(win):
+    try:
+        win.deiconify()
+        win.lift()
+        win.attributes("-topmost", True)
+        win.focus_force()
+        import ctypes
+        hwnd = win.winfo_id()
+        ctypes.windll.user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+        ctypes.windll.user32.SetForegroundWindow(hwnd)
+        ctypes.windll.user32.BringWindowToTop(hwnd)
+        win.after(500, lambda: win.attributes("-topmost", False))
+    except Exception:
+        pass
+
 APP_DIR = get_app_dir()
 DB_FILE = os.path.join(APP_DIR, "dmans_db.json")
 
@@ -169,22 +184,21 @@ class DmansApp(tk.Tk):
         referer = data.get("referer", "")
         user_agent = data.get("user_agent", "")
         start_now = data.get("start_now", False)
+        quality = data.get("quality", "best")
         if winsound:
             try:
                 winsound.MessageBeep(winsound.MB_ICONASTERISK)
             except Exception:
                 pass
-        self.deiconify()
-        self.lift()
-        self.attributes("-topmost", True)
-        self.after(600, lambda: self.attributes("-topmost", False))
+        force_bring_to_front(self)
         self.show_add_download_dialog(
             initial_url=url,
             filename=filename,
             cookies=cookies,
             referer=referer,
             user_agent=user_agent,
-            start_now=start_now
+            start_now=start_now,
+            quality=quality
         )
 
     def _load_db(self) -> list:
@@ -417,7 +431,7 @@ class DmansApp(tk.Tk):
         else:
             return f"{size_bytes / (1024 * 1024 * 1024):.2f} GB"
 
-    def show_add_download_dialog(self, initial_url: str = "", filename: str = "", cookies: str = "", referer: str = "", user_agent: str = "", start_now: bool = False):
+    def show_add_download_dialog(self, initial_url: str = "", filename: str = "", cookies: str = "", referer: str = "", user_agent: str = "", start_now: bool = False, quality: str = "best"):
         if not initial_url:
             try:
                 clip = self.clipboard_get().strip()
@@ -433,7 +447,8 @@ class DmansApp(tk.Tk):
             cookies=cookies,
             referer=referer,
             user_agent=user_agent,
-            start_now=start_now
+            start_now=start_now,
+            quality=quality
         )
         self.wait_window(dlg)
         if dlg.result:
@@ -476,6 +491,7 @@ class DmansApp(tk.Tk):
             "cookies": cfg.get("cookies", ""),
             "referer": cfg.get("referer", ""),
             "user_agent": cfg.get("user_agent", ""),
+            "quality": cfg.get("quality", "best"),
             "status": "Queued",
             "total_size": 0,
             "downloaded": 0,
@@ -503,7 +519,8 @@ class DmansApp(tk.Tk):
             progress_callback=lambda p: self._on_task_progress(url, p),
             cookies=rec.get("cookies", ""),
             referer=rec.get("referer", ""),
-            user_agent=rec.get("user_agent", None)
+            user_agent=rec.get("user_agent", None),
+            quality=rec.get("quality", "best")
         )
         self.downloads[url] = task
         self._open_detail_window(task)
@@ -804,12 +821,13 @@ class AddBatchDialog(tk.Toplevel):
 
 
 class AddDownloadDialog(tk.Toplevel):
-    def __init__(self, parent, initial_url: str = "", filename: str = "", cookies: str = "", referer: str = "", user_agent: str = "", start_now: bool = False):
+    def __init__(self, parent, initial_url: str = "", filename: str = "", cookies: str = "", referer: str = "", user_agent: str = "", start_now: bool = False, quality: str = "best"):
         super().__init__(parent)
         self.title("Enter URL to Download - Dmans")
-        self.geometry("540x290")
+        self.geometry("560x340")
         self.resizable(False, False)
         self.transient(parent)
+        force_bring_to_front(self)
         self.grab_set()
 
         self.result = None
@@ -821,6 +839,17 @@ class AddDownloadDialog(tk.Toplevel):
         self.file_var = tk.StringVar(value=filename)
         self.conn_var = tk.IntVar(value=8)
         self.speed_var = tk.StringVar(value="Unlimited")
+
+        qual_label_map = {
+            "1080p": "1080p (Full HD)",
+            "720p": "720p (HD)",
+            "480p": "480p (Standard)",
+            "360p": "360p (Fast)",
+            "audio": "Audio Only (MP3/M4A)",
+            "best": "Best Available (Auto)"
+        }
+        init_qual_label = qual_label_map.get(quality, "Best Available (Auto)")
+        self.quality_var = tk.StringVar(value=init_qual_label)
 
         if initial_url and not filename:
             self.file_var.set(self._guess_filename(initial_url))
@@ -875,6 +904,23 @@ class AddDownloadDialog(tk.Toplevel):
         speed_cb = ttk.Combobox(f, textvariable=self.speed_var, values=["Unlimited", "500 KB/s", "1 MB/s", "2 MB/s", "5 MB/s"], width=12, state="readonly")
         speed_cb.grid(row=4, column=1, sticky=tk.W, **pad)
 
+        ttk.Label(f, text="Quality / Format:").grid(row=5, column=0, sticky=tk.W, **pad)
+        qual_cb = ttk.Combobox(
+            f,
+            textvariable=self.quality_var,
+            values=[
+                "Best Available (Auto)",
+                "1080p (Full HD)",
+                "720p (HD)",
+                "480p (Standard)",
+                "360p (Fast)",
+                "Audio Only (MP3/M4A)"
+            ],
+            width=22,
+            state="readonly"
+        )
+        qual_cb.grid(row=5, column=1, sticky=tk.W, **pad)
+
         f.columnconfigure(1, weight=1)
 
         btn_box = ttk.Frame(self, padding=10)
@@ -896,6 +942,16 @@ class AddDownloadDialog(tk.Toplevel):
 
         speed_map = {"Unlimited": None, "500 KB/s": 500, "1 MB/s": 1024, "2 MB/s": 2048, "5 MB/s": 5120}
 
+        qual_rev_map = {
+            "1080p (Full HD)": "1080p",
+            "720p (HD)": "720p",
+            "480p (Standard)": "480p",
+            "360p (Fast)": "360p",
+            "Audio Only (MP3/M4A)": "audio",
+            "Best Available (Auto)": "best"
+        }
+        chosen_quality = qual_rev_map.get(self.quality_var.get(), "best")
+
         self.result = {
             "url": url,
             "filename": self.file_var.get().strip() or None,
@@ -905,7 +961,8 @@ class AddDownloadDialog(tk.Toplevel):
             "start_now": start_now,
             "cookies": self.cookies,
             "referer": self.referer,
-            "user_agent": self.user_agent
+            "user_agent": self.user_agent,
+            "quality": chosen_quality
         }
         self.destroy()
 
@@ -1055,6 +1112,26 @@ class DownloadCompleteDialog(tk.Toplevel):
 
 
 if __name__ == "__main__":
+    # Single-Instance check: if Dmans is already running, send URL to it and exit cleanly
+    try:
+        req = urllib.request.Request("http://127.0.0.1:18888/ping")
+        with urllib.request.urlopen(req, timeout=0.8) as resp:
+            if resp.status == 200:
+                if len(sys.argv) > 1:
+                    raw_url = sys.argv[1].strip()
+                    if raw_url.startswith("dmans://"):
+                        raw_url = raw_url[len("dmans://"):]
+                    if raw_url.startswith("http://") or raw_url.startswith("https://"):
+                        add_req = urllib.request.Request(
+                            "http://127.0.0.1:18888/add",
+                            data=json.dumps({"url": raw_url, "start_now": True}).encode("utf-8"),
+                            headers={"Content-Type": "application/json"}
+                        )
+                        urllib.request.urlopen(add_req, timeout=2)
+                sys.exit(0)
+    except Exception:
+        pass
+
     try:
         app = DmansApp()
         app.mainloop()

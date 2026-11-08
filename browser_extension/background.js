@@ -145,7 +145,7 @@ if (typeof chrome !== "undefined" && chrome && chrome.runtime && chrome.runtime.
     if (msg.type === "UPDATE_LAST_RIGHTCLICK_URL") {
       lastRightClickUrl = msg.url;
     } else if (msg.type === "DOWNLOAD_URL") {
-      sendToDmans(msg.url, msg.filename || "", referer);
+      sendToDmans(msg.url, msg.filename || "", referer, msg.quality || "best");
     } else if (msg.type === "INTERCEPT_LINK_CLICK") {
       safeGetSetting("interceptLinks", true, (enabled) => {
         if (enabled) {
@@ -200,8 +200,8 @@ if (typeof chrome !== "undefined" && chrome && chrome.downloads && chrome.downlo
   });
 }
 
-// 9. Send Request to Local Dmans API (Transmits Cookie, Referer, and User-Agent)
-async function sendToDmans(url, filename = "", referer = "") {
+// 9. Send Request to Local Dmans API (Transmits Quality, Cookie, Referer, and User-Agent)
+async function sendToDmans(url, filename = "", referer = "", quality = "best") {
   if (!url) return;
 
   let cookies = "";
@@ -222,6 +222,7 @@ async function sendToDmans(url, filename = "", referer = "") {
         cookies: cookies,
         referer: referer,
         user_agent: navigator.userAgent,
+        quality: quality,
         start_now: true
       }),
       signal: controller.signal
@@ -229,7 +230,7 @@ async function sendToDmans(url, filename = "", referer = "") {
     clearTimeout(timeoutId);
 
     if (res.ok) {
-      notifyUser("⚡ Dmans Connected", `Download added: ${filename || url.split('/').pop().split('?')[0] || url}`);
+      notifyUser("⚡ Dmans Connected", `Download added (${quality}): ${filename || url.split('/').pop().split('?')[0] || url}`);
       return;
     }
   } catch (err) {

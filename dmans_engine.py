@@ -75,7 +75,9 @@ class DownloadTask:
         progress_callback: Optional[Callable] = None,
         cookies: str = "",
         referer: str = "",
-        user_agent: Optional[str] = None
+        user_agent: Optional[str] = None,
+        quality: str = "best",
+        format_spec: str = ""
     ):
         self.original_url = url
         self.url = url
@@ -87,6 +89,8 @@ class DownloadTask:
         self.cookies = cookies or ""
         self.referer = referer or ""
         self.user_agent = user_agent or DEFAULT_USER_AGENT
+        self.quality = quality or "best"
+        self.format_spec = format_spec or ""
 
         self.total_size = 0
         self.supports_range = False
@@ -543,11 +547,27 @@ class DownloadTask:
         out_base = os.path.splitext(self.final_path)[0]
         outtmpl = f"{out_base}.%(ext)s"
 
+        if self.format_spec:
+            ydl_format = self.format_spec
+        elif self.quality == "1080p":
+            ydl_format = 'bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080]/best'
+        elif self.quality == "720p":
+            ydl_format = 'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=720]+bestaudio/best[height<=720]/best'
+        elif self.quality == "480p":
+            ydl_format = 'bestvideo[height<=480][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=480]+bestaudio/best[height<=480]/best'
+        elif self.quality == "360p":
+            ydl_format = 'bestvideo[height<=360][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=360]+bestaudio/best[height<=360]/best'
+        elif self.quality == "audio":
+            ydl_format = 'bestaudio[ext=m4a]/bestaudio/best'
+            self.category = "Music"
+        else:
+            ydl_format = 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best'
+
         ydl_opts = {
             'quiet': True,
             'no_warnings': True,
             'noplaylist': True,
-            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+            'format': ydl_format,
             'outtmpl': outtmpl,
             'progress_hooks': [_yt_hook],
             'extractor_args': {
