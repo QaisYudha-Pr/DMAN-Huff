@@ -81,6 +81,14 @@ class DmansApiHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             self.wfile.write(b'{"status": "ok", "app": "Dmans"}')
+        elif self.path == "/show":
+            if DmansApiHandler.app_ref:
+                DmansApiHandler.app_ref.after(0, DmansApiHandler.app_ref.show_window)
+            self.send_response(200)
+            self._send_cors()
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(b'{"status": "shown"}')
         else:
             self.send_response(404)
             self.end_headers()
@@ -200,6 +208,11 @@ class DmansApp(tk.Tk):
             start_now=start_now,
             quality=quality
         )
+
+    def show_window(self):
+        self.deiconify()
+        self.lift()
+        force_bring_to_front(self)
 
     def _load_db(self) -> list:
         if os.path.exists(DB_FILE):
@@ -1111,12 +1124,14 @@ class DownloadCompleteDialog(tk.Toplevel):
         self.destroy()
 
 
-if __name__ == "__main__":
-    # Single-Instance check: if Dmans is already running, send URL to it and exit cleanly
+def check_single_instance():
     try:
-        req = urllib.request.Request("http://127.0.0.1:18888/ping")
-        with urllib.request.urlopen(req, timeout=0.8) as resp:
-            if resp.status == 200:
+        import ctypes
+        kernel32 = ctypes.windll.kernel32
+        mutex_name = "Global\\Dmans_App_Instance_Mutex_2026"
+        mutex = kernel32.CreateMutexW(None, False, mutex_name)
+        if kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
+            try:
                 if len(sys.argv) > 1:
                     raw_url = sys.argv[1].strip()
                     if raw_url.startswith("dmans://"):
@@ -1127,10 +1142,22 @@ if __name__ == "__main__":
                             data=json.dumps({"url": raw_url, "start_now": True}).encode("utf-8"),
                             headers={"Content-Type": "application/json"}
                         )
-                        urllib.request.urlopen(add_req, timeout=2)
-                sys.exit(0)
+                        urllib.request.urlopen(add_req, timeout=1.5)
+                else:
+                    show_req = urllib.request.Request("http://127.0.0.1:18888/show")
+                    urllib.request.urlopen(show_req, timeout=1.5)
+            except Exception:
+                pass
+            return False, None
+        return True, mutex
     except Exception:
-        pass
+        return True, None
+
+
+if __name__ == "__main__":
+    is_primary, _mutex = check_single_instance()
+    if not is_primary:
+        sys.exit(0)
 
     try:
         app = DmansApp()

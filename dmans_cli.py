@@ -40,6 +40,7 @@ def main():
     parser.add_argument("-c", "--connections", type=int, default=8, help="Number of parallel connections (1-32, default 8)")
     parser.add_argument("-o", "--output-dir", default=".", help="Directory to save the downloaded file")
     parser.add_argument("-f", "--filename", default=None, help="Custom filename to save as")
+    parser.add_argument("-q", "--quality", default="best", choices=["best", "1080p", "720p", "480p", "360p", "audio"], help="Video quality for YouTube/streaming (default: best)")
     parser.add_argument("-l", "--limit", type=int, default=None, help="Speed limit in KB/s (e.g. 1024 for 1 MB/s)")
     parser.add_argument("-v", "--version", action="version", version=f"Dmans v{version.VERSION}")
     
@@ -55,7 +56,8 @@ def main():
         custom_filename=args.filename,
         num_connections=args.connections,
         max_speed_kb=args.limit,
-        progress_callback=render_progress
+        progress_callback=render_progress,
+        quality=args.quality
     )
     
     try:
