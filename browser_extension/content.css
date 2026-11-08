@@ -2,46 +2,78 @@
 
 .dmans-floating-wrapper {
   position: absolute !important;
-  top: 12px !important;
-  right: 12px !important;
+  top: 14px !important;
+  right: 80px !important;
   z-index: 2147483647 !important;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
   user-select: none !important;
+  pointer-events: auto !important;
+  opacity: 0.88 !important;
+  transition: opacity 0.25s ease, transform 0.2s ease !important;
+}
+
+/* On video hover or when bar is hovered, fully opaque */
+*:hover > .dmans-floating-wrapper,
+.dmans-floating-wrapper:hover,
+.dmans-floating-wrapper.dmans-active {
+  opacity: 1 !important;
 }
 
 .dmans-video-bar {
-  display: flex !important;
+  display: inline-flex !important;
   align-items: center !important;
-  gap: 6px !important;
-  background: linear-gradient(135deg, #0284c7, #0369a1) !important;
+  background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%) !important;
   color: #ffffff !important;
-  font-size: 12px !important;
-  font-weight: 600 !important;
-  padding: 7px 12px !important;
   border-radius: 6px !important;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45) !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5) !important;
+  border: 1px solid rgba(255, 255, 255, 0.3) !important;
   cursor: pointer !important;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
-  opacity: 0.88;
+  overflow: hidden !important;
+  line-height: 1 !important;
 }
 
 .dmans-video-bar:hover {
-  opacity: 1 !important;
+  background: linear-gradient(135deg, #0369a1 0%, #075985 100%) !important;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.65) !important;
   transform: translateY(-1px) scale(1.02) !important;
-  background: linear-gradient(135deg, #0369a1, #075985) !important;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.55) !important;
 }
 
-.dmans-video-bar svg {
+.dmans-btn-main {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  padding: 7px 11px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  color: #ffffff !important;
+  cursor: pointer !important;
+}
+
+.dmans-btn-main svg {
   width: 14px !important;
   height: 14px !important;
   fill: currentColor !important;
+  flex-shrink: 0 !important;
 }
 
-.dmans-video-bar .dmans-caret {
-  margin-left: 2px !important;
+.dmans-btn-dropdown {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 7px 8px !important;
+  border-left: 1px solid rgba(255, 255, 255, 0.2) !important;
+  cursor: pointer !important;
+  background: rgba(0, 0, 0, 0.12) !important;
+}
+
+.dmans-btn-dropdown:hover {
+  background: rgba(0, 0, 0, 0.28) !important;
+}
+
+.dmans-btn-dropdown .dmans-caret {
   font-size: 10px !important;
-  opacity: 0.8 !important;
+  color: #ffffff !important;
+  opacity: 0.9 !important;
 }
 
 /* IDM-Grade Quality Dropdown Menu */
@@ -49,18 +81,19 @@
   position: absolute !important;
   top: calc(100% + 6px) !important;
   right: 0 !important;
-  width: 180px !important;
-  background: #1e293b !important;
+  min-width: 195px !important;
+  background: #0f172a !important;
   color: #f8fafc !important;
   border-radius: 8px !important;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6) !important;
-  border: 1px solid #334155 !important;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.75) !important;
+  border: 1px solid #38bdf8 !important;
   padding: 6px !important;
   display: flex !important;
   flex-direction: column !important;
-  gap: 2px !important;
+  gap: 3px !important;
   z-index: 2147483647 !important;
   animation: dmansFadeIn 0.15s ease-out !important;
+  pointer-events: auto !important;
 }
 
 @keyframes dmansFadeIn {
@@ -69,43 +102,50 @@
 }
 
 .dmans-quality-header {
-  font-size: 10px !important;
+  font-size: 11px !important;
   font-weight: 700 !important;
   text-transform: uppercase !important;
   letter-spacing: 0.5px !important;
-  color: #94a3b8 !important;
-  padding: 4px 8px !important;
+  color: #38bdf8 !important;
+  padding: 5px 8px !important;
   border-bottom: 1px solid #334155 !important;
-  margin-bottom: 4px !important;
+  margin-bottom: 3px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
 }
 
 .dmans-quality-item {
   display: flex !important;
   align-items: center !important;
   justify-content: space-between !important;
-  padding: 6px 10px !important;
+  padding: 7px 10px !important;
   font-size: 12px !important;
   font-weight: 500 !important;
-  border-radius: 4px !important;
+  border-radius: 5px !important;
   cursor: pointer !important;
   color: #e2e8f0 !important;
-  transition: background 0.15s !important;
+  transition: all 0.15s !important;
 }
 
 .dmans-quality-item:hover {
   background: #0284c7 !important;
   color: #ffffff !important;
+  transform: translateX(2px) !important;
 }
 
 .dmans-quality-item .dmans-badge {
   font-size: 10px !important;
+  font-weight: 600 !important;
   padding: 2px 6px !important;
   border-radius: 4px !important;
-  background: #334155 !important;
-  color: #cbd5e1 !important;
+  background: #1e293b !important;
+  color: #38bdf8 !important;
+  border: 1px solid #334155 !important;
 }
 
 .dmans-quality-item:hover .dmans-badge {
   background: #0369a1 !important;
   color: #ffffff !important;
+  border-color: rgba(255, 255, 255, 0.4) !important;
 }

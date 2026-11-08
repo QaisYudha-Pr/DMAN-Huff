@@ -145,7 +145,10 @@ if (typeof chrome !== "undefined" && chrome && chrome.runtime && chrome.runtime.
     if (msg.type === "UPDATE_LAST_RIGHTCLICK_URL") {
       lastRightClickUrl = msg.url;
     } else if (msg.type === "DOWNLOAD_URL") {
-      sendToDmans(msg.url, msg.filename || "", referer, msg.quality || "best");
+      sendToDmans(msg.url, msg.filename || "", referer, msg.quality || "best").then(success => {
+        try { sendResponse({ success: success, offline: !success }); } catch (e) {}
+      });
+      return true;
     } else if (msg.type === "INTERCEPT_LINK_CLICK") {
       safeGetSetting("interceptLinks", true, (enabled) => {
         if (enabled) {
@@ -231,7 +234,7 @@ async function sendToDmans(url, filename = "", referer = "", quality = "best") {
 
     if (res.ok) {
       notifyUser("⚡ Dmans Connected", `Download added (${quality}): ${filename || url.split('/').pop().split('?')[0] || url}`);
-      return;
+      return true;
     }
   } catch (err) {
     console.warn("[Dmans] Local API offline, launching Dmans via protocol fallback:", err);
@@ -251,4 +254,5 @@ async function sendToDmans(url, filename = "", referer = "", quality = "best") {
   } catch (e) {
     notifyUser("⚠️ Dmans Belum Dibuka", "Silakan buka Dmans.exe di laptopmu untuk menerima unduhan.");
   }
+  return false;
 }
