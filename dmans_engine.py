@@ -20,7 +20,7 @@ except ImportError:
 
 # Set global socket options for high-throughput networking
 socket.setdefaulttimeout(30)
-DEFAULT_USER_AGENT = "Dmans/1.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 OPTIMAL_CHUNK_SIZE = 262144  # 256 KB chunks for high throughput and reduced lock contention
 
 class Segment:
@@ -72,14 +72,21 @@ class DownloadTask:
         num_connections: int = 8,
         chunk_size: int = OPTIMAL_CHUNK_SIZE,
         max_speed_kb: Optional[int] = None,
-        progress_callback: Optional[Callable] = None
+        progress_callback: Optional[Callable] = None,
+        cookies: str = "",
+        referer: str = "",
+        user_agent: Optional[str] = None
     ):
+        self.original_url = url
         self.url = url
         self.output_dir = os.path.abspath(output_dir)
         self.num_connections = max(1, min(num_connections, 32))
         self.chunk_size = chunk_size
         self.max_speed_kb = max_speed_kb
         self.progress_callback = progress_callback
+        self.cookies = cookies or ""
+        self.referer = referer or ""
+        self.user_agent = user_agent or DEFAULT_USER_AGENT
 
         self.total_size = 0
         self.supports_range = False
@@ -87,6 +94,7 @@ class DownloadTask:
         self.final_path = os.path.join(self.output_dir, self.filename)
         self.part_path = self.final_path + ".dmpart"
         self.meta_path = self.final_path + ".dmmeta"
+        self.is_stream_task = False
 
         self.segments: List[Segment] = []
         self.is_paused = False
@@ -105,6 +113,14 @@ class DownloadTask:
         self.added_time = time.strftime("%Y-%m-%d %H:%M")
         self.status = "Queued"
         self.category = self._detect_category(self.filename)
+
+    def _set_filename(self, name: str):
+        if not name:
+            return
+        self.filename = name
+        self.final_path = os.path.join(self.output_dir, self.filename)
+        self.part_path = self.final_path + ".dmpart"
+        self.meta_path = self.final_path + ".dmmeta"
 
     def _detect_category(self, filename: str) -> str:
         ext = os.path.splitext(filename)[1].lower()
@@ -135,13 +151,14 @@ class DownloadTask:
         """Resolves direct stream URLs for YouTube, TikTok, etc. using yt_dlp if available"""
         if not yt_dlp:
             return
-        url_lower = self.url.lower()
+        url_lower = self.original_url.lower()
         if any(domain in url_lower for domain in ["youtube.com", "youtu.be", "tiktok.com", "instagram.com/reel", "twitter.com", "x.com"]):
+            self.is_stream_task = True
             try:
-                target_url = self.url
+                target_url = self.original_url
                 if "youtube.com" in url_lower:
                     try:
-                        parsed = urllib.parse.urlparse(self.url)
+                        parsed = urllib.parse.urlparse(self.original_url)
                         qs = urllib.parse.parse_qs(parsed.query)
                         v = qs.get("v", [""])[0]
                         if v:
@@ -160,29 +177,30 @@ class DownloadTask:
                         }
                     }
                 }
+                http_headers = {'User-Agent': self.user_agent}
+                if self.cookies:
+                    http_headers['Cookie'] = self.cookies
+                if self.referer:
+                    http_headers['Referer'] = self.referer
+                ydl_opts['http_headers'] = http_headers
+
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     info = ydl.extract_info(target_url, download=False)
                     if info:
-                        direct = info.get('url') or (info.get('formats') and info['formats'][-1].get('url'))
                         title = info.get('title')
                         ext = info.get('ext', 'mp4')
-                        if direct:
-                            self.url = direct
-                        
-                        if self.filename:
-                            if not os.path.splitext(self.filename)[1]:
-                                self.filename = f"{self.filename}.{ext}"
-                        if not self.filename or self.filename.endswith(".bin") or "watch" in self.filename:
-                            clean = "".join(c for c in title if c.isalnum() or c in " ._- ()") if title else "video"
-                            self.filename = f"{clean}.{ext}"
-                        
-                        self.filepath = os.path.join(self.output_dir, self.filename)
+                        clean = "".join(c for c in title if c.isalnum() or c in " ._- ()") if title else "video"
+                        self._set_filename(f"{clean}.{ext}")
                         self.category = "Video"
+                        if info.get('filesize'):
+                            self.total_size = info.get('filesize')
+                        elif info.get('filesize_approx'):
+                            self.total_size = info.get('filesize_approx')
             except Exception:
                 pass
 
     def _parse_headers_for_metadata(self, headers: dict):
-        """Extracts file size, Range support, and RFC 6266 Content-Disposition filename"""
+        """Extracts file size, Range support, RFC 6266 Content-Disposition filename, and Content-Type extension"""
         if "content-length" in headers and headers["content-length"].isdigit():
             self.total_size = int(headers["content-length"])
         if headers.get("accept-ranges", "").lower() == "bytes":
@@ -194,16 +212,36 @@ class DownloadTask:
             m_utf = re.search(r"filename\*\s*=\s*(?:UTF-8''|utf-8'')([^;]+)", cd, re.IGNORECASE)
             if m_utf:
                 fname = urllib.parse.unquote(m_utf.group(1).strip('"\''))
-                self.filename = fname
-                self.filepath = os.path.join(self.output_dir, self.filename)
+                self._set_filename(fname)
             else:
                 m = re.search(r'filename\s*=\s*(?:"([^"]+)"|([^;\s]+))', cd, re.IGNORECASE)
                 if m:
                     fname = urllib.parse.unquote((m.group(1) or m.group(2)).strip('"\''))
-                    self.filename = fname
-                    self.filepath = os.path.join(self.output_dir, self.filename)
+                    self._set_filename(fname)
 
         ct = headers.get("content-type", "").lower()
+        # If filename has no extension or is generic .bin, infer accurate extension from Content-Type
+        cur_ext = os.path.splitext(self.filename)[1].lower()
+        if not cur_ext or cur_ext == ".bin":
+            base = os.path.splitext(self.filename)[0] or "download"
+            if "image/jpeg" in ct:
+                self._set_filename(f"{base}.jpg")
+            elif "image/png" in ct:
+                self._set_filename(f"{base}.png")
+            elif "image/webp" in ct:
+                self._set_filename(f"{base}.webp")
+            elif "image/gif" in ct:
+                self._set_filename(f"{base}.gif")
+            elif "image/" in ct:
+                sub = ct.split("image/")[1].split(";")[0].strip()
+                self._set_filename(f"{base}.{sub}")
+            elif "video/mp4" in ct:
+                self._set_filename(f"{base}.mp4")
+            elif "application/pdf" in ct:
+                self._set_filename(f"{base}.pdf")
+            elif "application/zip" in ct or "compressed" in ct:
+                self._set_filename(f"{base}.zip")
+
         self.category = self._detect_category(self.filename, ct)
 
     def _detect_category(self, filename: str, content_type: str = "") -> str:
@@ -215,6 +253,8 @@ class DownloadTask:
             return "Video"
         elif ext in [".mp3", ".wav", ".flac", ".aac", ".ogg", ".m4a"] or "audio" in ct:
             return "Music"
+        elif ext in [".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".bmp", ".ico", ".tiff"] or "image" in ct:
+            return "Images"
         elif ext in [".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".txt"] or "pdf" in ct or "msword" in ct:
             return "Documents"
         elif ext in [".exe", ".msi", ".apk", ".dmg", ".bin"] or "octet-stream" in ct:
@@ -224,9 +264,16 @@ class DownloadTask:
     def probe(self):
         """Detect file length and Range support via HTTP HEAD or GET"""
         self._resolve_streaming_url()
+        if self.is_stream_task:
+            return
+
         req = urllib.request.Request(self.url, method="HEAD")
-        req.add_header("User-Agent", DEFAULT_USER_AGENT)
+        req.add_header("User-Agent", self.user_agent)
         req.add_header("Connection", "keep-alive")
+        if self.cookies:
+            req.add_header("Cookie", self.cookies)
+        if self.referer:
+            req.add_header("Referer", self.referer)
 
         try:
             with urllib.request.urlopen(req, timeout=12) as resp:
@@ -237,11 +284,16 @@ class DownloadTask:
 
         if not self.supports_range:
             try:
-                probe_req = urllib.request.Request(self.url, headers={
-                    "User-Agent": DEFAULT_USER_AGENT,
+                headers = {
+                    "User-Agent": self.user_agent,
                     "Range": "bytes=0-0",
                     "Connection": "keep-alive"
-                })
+                }
+                if self.cookies:
+                    headers["Cookie"] = self.cookies
+                if self.referer:
+                    headers["Referer"] = self.referer
+                probe_req = urllib.request.Request(self.url, headers=headers)
                 with urllib.request.urlopen(probe_req, timeout=12) as resp:
                     headers = {k.lower(): v for k, v in resp.headers.items()}
                     self._parse_headers_for_metadata(headers)
@@ -301,15 +353,23 @@ class DownloadTask:
                 pass
             return
 
-        # Fast NTFS sparse file allocation via truncate
+        # Smart dynamic connection count (IDM adaptive multi-threading)
+        actual_conns = self.num_connections
+        if self.total_size > 0:
+            if self.total_size < 1024 * 1024:  # Under 1 MB (e.g. images, icons, small docs)
+                actual_conns = 1
+            elif self.total_size < 5 * 1024 * 1024:  # Under 5 MB
+                actual_conns = min(actual_conns, 4)
+
+        # Fast NTFS pre-allocation
         with open(self.part_path, "wb") as f:
             f.truncate(self.total_size)
 
-        part_size = self.total_size // self.num_connections
+        part_size = self.total_size // actual_conns
         self.segments = []
-        for i in range(self.num_connections):
+        for i in range(actual_conns):
             start = i * part_size
-            end = (start + part_size - 1) if (i < self.num_connections - 1) else (self.total_size - 1)
+            end = (start + part_size - 1) if (i < actual_conns - 1) else (self.total_size - 1)
             self.segments.append(Segment(i, start, end))
 
         self._save_metadata()
@@ -350,11 +410,16 @@ class DownloadTask:
             return
 
         segment.status = "DOWNLOADING"
-        req = urllib.request.Request(self.url, headers={
-            "User-Agent": DEFAULT_USER_AGENT,
+        headers = {
+            "User-Agent": self.user_agent,
             "Range": f"bytes={segment.current}-{segment.end}",
             "Connection": "keep-alive"
-        })
+        }
+        if self.cookies:
+            headers["Cookie"] = self.cookies
+        if self.referer:
+            headers["Referer"] = self.referer
+        req = urllib.request.Request(self.url, headers=headers)
 
         retries = 3
         while retries > 0 and not self.is_paused and not self.is_cancelled:
@@ -435,6 +500,95 @@ class DownloadTask:
             "segments": [seg.to_dict() for seg in self.segments]
         }
 
+    def _download_stream(self):
+        self.status = "Downloading"
+        target_url = self.original_url
+        if "youtube.com" in target_url.lower():
+            try:
+                parsed = urllib.parse.urlparse(target_url)
+                qs = urllib.parse.parse_qs(parsed.query)
+                v = qs.get("v", [""])[0]
+                if v:
+                    target_url = f"https://www.youtube.com/watch?v={v}"
+            except Exception:
+                pass
+
+        def _yt_hook(d):
+            if self.is_cancelled:
+                raise Exception("Download cancelled by user")
+            status = d.get("status")
+            if status == "downloading":
+                self.status = "Downloading"
+                total = d.get("total_bytes") or d.get("total_bytes_estimate") or self.total_size or 0
+                if total > 0:
+                    self.total_size = total
+                downloaded = d.get("downloaded_bytes", 0)
+                speed = d.get("speed") or 0.0
+                self.current_speed = speed
+
+                if not self.segments:
+                    self.segments = [Segment(0, 0, self.total_size or downloaded or 1, downloaded)]
+                else:
+                    self.segments[0].current = downloaded
+                    self.segments[0].end = self.total_size or downloaded
+                    self.segments[0].status = "DOWNLOADING"
+
+                if self.progress_callback:
+                    self.progress_callback(self.get_progress())
+            elif status == "finished":
+                self.status = "Finalizing"
+                if self.progress_callback:
+                    self.progress_callback(self.get_progress())
+
+        out_base = os.path.splitext(self.final_path)[0]
+        outtmpl = f"{out_base}.%(ext)s"
+
+        ydl_opts = {
+            'quiet': True,
+            'no_warnings': True,
+            'noplaylist': True,
+            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+            'outtmpl': outtmpl,
+            'progress_hooks': [_yt_hook],
+            'extractor_args': {
+                'youtube': {
+                    'player_client': ['android', 'ios', 'web']
+                }
+            }
+        }
+        http_headers = {'User-Agent': self.user_agent}
+        if self.cookies:
+            http_headers['Cookie'] = self.cookies
+        if self.referer:
+            http_headers['Referer'] = self.referer
+        ydl_opts['http_headers'] = http_headers
+
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(target_url, download=True)
+                if info:
+                    real_ext = info.get('ext', 'mp4')
+                    real_filename = f"{os.path.basename(out_base)}.{real_ext}"
+                    self._set_filename(real_filename)
+
+            self.is_finished = True
+            self.status = "Completed"
+            self.current_speed = 0.0
+            if os.path.exists(self.final_path):
+                self.total_size = os.path.getsize(self.final_path)
+            if self.segments:
+                self.segments[0].status = "COMPLETED"
+                self.segments[0].current = self.total_size
+                self.segments[0].end = self.total_size
+            if self.progress_callback:
+                self.progress_callback(self.get_progress())
+        except Exception as e:
+            if not self.is_cancelled:
+                self.status = "Error"
+                self.current_speed = 0.0
+                if self.progress_callback:
+                    self.progress_callback(self.get_progress())
+
     def start(self):
         self.is_paused = False
         self.is_cancelled = False
@@ -443,6 +597,11 @@ class DownloadTask:
             self.progress_callback(self.get_progress())
 
         self.probe()
+
+        if self.is_stream_task and yt_dlp:
+            self._download_stream()
+            return
+
         self.status = "Downloading"
         self._setup_segments()
         self.start_time = time.time()
@@ -480,6 +639,12 @@ class DownloadTask:
 
             for t in threads:
                 t.join()
+
+            # IDM-style fault tolerance: If any segment failed, retry sequentially before finalizing
+            if not self.is_paused and not self.is_cancelled:
+                incomplete = [s for s in self.segments if not s.is_finished and s.status != "COMPLETED"]
+                for seg in incomplete:
+                    self._download_segment(seg, f)
 
         all_done = all(seg.is_finished or seg.status == "COMPLETED" for seg in self.segments)
         if all_done and not self.is_paused and not self.is_cancelled:

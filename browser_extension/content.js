@@ -11,13 +11,21 @@
 
   let lastTargetUrl = "";
 
-  // 1. Right-click helper: accurately captures media/link URL under mouse (Prioritizes images & videos over enclosing page links!)
+  // 1. Right-click helper: accurately captures media/link URL under mouse
   document.addEventListener("contextmenu", (e) => {
     let el = e.target;
     let url = "";
 
-    // Priority 1: Direct media under the cursor (Image, Video, Audio)
+    // Priority 0: Check if clicked element or any parent is a YouTube video card / watch link
     if (el) {
+      let videoLink = el.closest ? el.closest('a[href*="watch?v="], a[href*="youtu.be/"], a[href*="/shorts/"]') : null;
+      if (videoLink && videoLink.href) {
+        url = videoLink.href;
+      }
+    }
+
+    // Priority 1: Direct media under cursor (Image, Video, Audio)
+    if (!url && el) {
       if (el.tagName === "IMG" && el.src) {
         url = el.src;
       } else if ((el.tagName === "VIDEO" || el.tagName === "AUDIO" || el.tagName === "SOURCE") && (el.currentSrc || el.src)) {
@@ -25,7 +33,7 @@
       }
     }
 
-    // Priority 2: If no direct media, search parents (Image inside link, Video, or Anchor)
+    // Priority 2: Direct media inside parent elements (e.g. Pinterest pin image wrapper)
     if (!url) {
       let curr = el;
       while (curr && curr !== document.body) {
@@ -51,13 +59,15 @@
 
     lastTargetUrl = url;
     try {
-      chrome.runtime.sendMessage({ type: "UPDATE_LAST_RIGHTCLICK_URL", url: url });
+      if (typeof chrome !== "undefined" && chrome && chrome.runtime && chrome.runtime.sendMessage) {
+        chrome.runtime.sendMessage({ type: "UPDATE_LAST_RIGHTCLICK_URL", url: url });
+      }
     } catch (err) {}
   }, true);
 
   // 2. Intercept direct file link clicks (.zip, .mp4, .exe, etc.)
   document.addEventListener("click", (e) => {
-    let link = e.target.closest("a");
+    let link = e.target.closest ? e.target.closest("a") : null;
     if (!link || !link.href) return;
 
     let cleanUrl = link.href.split("?")[0].toLowerCase();
@@ -65,16 +75,18 @@
 
     if (isDownloadable) {
       try {
-        chrome.runtime.sendMessage({
-          type: "INTERCEPT_LINK_CLICK",
-          url: link.href
-        }, (res) => {
-          if (chrome.runtime.lastError) return;
-          if (res && res.handled) {
-            e.preventDefault();
-            e.stopPropagation();
-          }
-        });
+        if (typeof chrome !== "undefined" && chrome && chrome.runtime && chrome.runtime.sendMessage) {
+          chrome.runtime.sendMessage({
+            type: "INTERCEPT_LINK_CLICK",
+            url: link.href
+          }, (res) => {
+            if (chrome.runtime && chrome.runtime.lastError) return;
+            if (res && res.handled) {
+              e.preventDefault();
+              e.stopPropagation();
+            }
+          });
+        }
       } catch (err) {}
     }
   }, true);
@@ -85,17 +97,15 @@
     mediaElements.forEach((media) => {
       if (media.dataset.dmansAttached) return;
 
-      // Ensure media element is visible and has dimension
       const rect = media.getBoundingClientRect();
       if (rect.width < 50 && rect.height < 50 && media.tagName === "VIDEO") {
-        return; // Ignore invisible tracking video pixels
+        return; // Ignore invisible tracking pixels
       }
 
       media.dataset.dmansAttached = "true";
 
-      // Find appropriate container
       let container = media.parentElement;
-      const ytPlayer = media.closest(".html5-video-player") || media.closest("#movie_player");
+      const ytPlayer = media.closest ? (media.closest(".html5-video-player") || media.closest("#movie_player")) : null;
       if (ytPlayer) {
         container = ytPlayer;
       }
@@ -118,30 +128,25 @@
         e.preventDefault();
         e.stopPropagation();
 
-        let streamUrl = media.currentSrc || media.src;
-        if (!streamUrl) {
-          const source = media.querySelector("source");
-          if (source) streamUrl = source.src;
-        }
-        if (!streamUrl) streamUrl = window.location.href;
-
-        // If it's a blob URL (MSE streaming)
-        if (streamUrl.startsWith("blob:")) {
-          bar.innerHTML = `<span>⚠️ Blob Stream (Right-click link)</span>`;
-          setTimeout(() => {
-            bar.innerHTML = `
-              <svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
-              <span>Download with Dmans</span>
-            `;
-          }, 2500);
-          return;
+        let streamUrl = "";
+        if (window.location.hostname.includes("youtube.com")) {
+          streamUrl = window.location.href;
+        } else {
+          streamUrl = media.currentSrc || media.src;
+          if (!streamUrl) {
+            const source = media.querySelector("source");
+            if (source) streamUrl = source.src;
+          }
+          if (!streamUrl) streamUrl = window.location.href;
         }
 
         try {
-          chrome.runtime.sendMessage({
-            type: "DOWNLOAD_URL",
-            url: streamUrl
-          });
+          if (typeof chrome !== "undefined" && chrome && chrome.runtime && chrome.runtime.sendMessage) {
+            chrome.runtime.sendMessage({
+              type: "DOWNLOAD_URL",
+              url: streamUrl
+            });
+          }
         } catch (err) {}
 
         bar.innerHTML = `<span>✓ Sent to Dmans</span>`;
@@ -157,6 +162,6 @@
     });
   }
 
+  // Observe dynamically loaded videos
   setInterval(attachVideoButtons, 1500);
-  attachVideoButtons();
 })();

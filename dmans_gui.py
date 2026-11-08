@@ -164,6 +164,11 @@ class DmansApp(tk.Tk):
         url = data.get("url", "").strip()
         if not url:
             return
+        filename = data.get("filename", "").strip()
+        cookies = data.get("cookies", "")
+        referer = data.get("referer", "")
+        user_agent = data.get("user_agent", "")
+        start_now = data.get("start_now", False)
         if winsound:
             try:
                 winsound.MessageBeep(winsound.MB_ICONASTERISK)
@@ -173,7 +178,14 @@ class DmansApp(tk.Tk):
         self.lift()
         self.attributes("-topmost", True)
         self.after(600, lambda: self.attributes("-topmost", False))
-        self.show_add_download_dialog(initial_url=url)
+        self.show_add_download_dialog(
+            initial_url=url,
+            filename=filename,
+            cookies=cookies,
+            referer=referer,
+            user_agent=user_agent,
+            start_now=start_now
+        )
 
     def _load_db(self) -> list:
         if os.path.exists(DB_FILE):
@@ -294,6 +306,7 @@ class DmansApp(tk.Tk):
         self.cat_tree.insert(types_node, "end", text="  📄 Documents", values=("Documents",))
         self.cat_tree.insert(types_node, "end", text="  🎬 Video", values=("Video",))
         self.cat_tree.insert(types_node, "end", text="  🎵 Music", values=("Music",))
+        self.cat_tree.insert(types_node, "end", text="  🖼️ Images", values=("Images",))
         self.cat_tree.insert(types_node, "end", text="  💾 Programs", values=("Programs",))
         self.cat_tree.insert(types_node, "end", text="  🗂️ General", values=("General",))
 
@@ -404,7 +417,7 @@ class DmansApp(tk.Tk):
         else:
             return f"{size_bytes / (1024 * 1024 * 1024):.2f} GB"
 
-    def show_add_download_dialog(self, initial_url: str = ""):
+    def show_add_download_dialog(self, initial_url: str = "", filename: str = "", cookies: str = "", referer: str = "", user_agent: str = "", start_now: bool = False):
         if not initial_url:
             try:
                 clip = self.clipboard_get().strip()
@@ -413,7 +426,15 @@ class DmansApp(tk.Tk):
             except Exception:
                 pass
 
-        dlg = AddDownloadDialog(self, initial_url=initial_url)
+        dlg = AddDownloadDialog(
+            self,
+            initial_url=initial_url,
+            filename=filename,
+            cookies=cookies,
+            referer=referer,
+            user_agent=user_agent,
+            start_now=start_now
+        )
         self.wait_window(dlg)
         if dlg.result:
             self._add_task(dlg.result)
@@ -452,6 +473,9 @@ class DmansApp(tk.Tk):
             "output_dir": cfg["output_dir"],
             "connections": cfg["connections"],
             "max_speed_kb": cfg["max_speed_kb"],
+            "cookies": cfg.get("cookies", ""),
+            "referer": cfg.get("referer", ""),
+            "user_agent": cfg.get("user_agent", ""),
             "status": "Queued",
             "total_size": 0,
             "downloaded": 0,
@@ -476,7 +500,10 @@ class DmansApp(tk.Tk):
             custom_filename=rec["filename"],
             num_connections=rec["connections"],
             max_speed_kb=rec["max_speed_kb"],
-            progress_callback=lambda p: self._on_task_progress(url, p)
+            progress_callback=lambda p: self._on_task_progress(url, p),
+            cookies=rec.get("cookies", ""),
+            referer=rec.get("referer", ""),
+            user_agent=rec.get("user_agent", None)
         )
         self.downloads[url] = task
         self._open_detail_window(task)
@@ -777,7 +804,7 @@ class AddBatchDialog(tk.Toplevel):
 
 
 class AddDownloadDialog(tk.Toplevel):
-    def __init__(self, parent, initial_url: str = ""):
+    def __init__(self, parent, initial_url: str = "", filename: str = "", cookies: str = "", referer: str = "", user_agent: str = "", start_now: bool = False):
         super().__init__(parent)
         self.title("Enter URL to Download - Dmans")
         self.geometry("540x290")
@@ -786,13 +813,16 @@ class AddDownloadDialog(tk.Toplevel):
         self.grab_set()
 
         self.result = None
+        self.cookies = cookies or ""
+        self.referer = referer or ""
+        self.user_agent = user_agent or ""
         self.url_var = tk.StringVar(value=initial_url)
         self.dir_var = tk.StringVar(value=os.path.abspath("."))
-        self.file_var = tk.StringVar(value="")
+        self.file_var = tk.StringVar(value=filename)
         self.conn_var = tk.IntVar(value=8)
         self.speed_var = tk.StringVar(value="Unlimited")
 
-        if initial_url:
+        if initial_url and not filename:
             self.file_var.set(self._guess_filename(initial_url))
             if any(k in initial_url.lower() for k in ["youtube.com", "youtu.be", "tiktok.com"]):
                 def _fetch_title():
@@ -808,7 +838,8 @@ class AddDownloadDialog(tk.Toplevel):
                         pass
                 threading.Thread(target=_fetch_title, daemon=True).start()
 
-        self.url_var.trace_add("write", lambda *_: self.file_var.set(self._guess_filename(self.url_var.get())))
+        if not filename:
+            self.url_var.trace_add("write", lambda *_: self.file_var.set(self._guess_filename(self.url_var.get())))
         self._build_ui()
 
     def _guess_filename(self, url: str) -> str:
@@ -871,7 +902,10 @@ class AddDownloadDialog(tk.Toplevel):
             "output_dir": self.dir_var.get(),
             "connections": self.conn_var.get(),
             "max_speed_kb": speed_map.get(self.speed_var.get()),
-            "start_now": start_now
+            "start_now": start_now,
+            "cookies": self.cookies,
+            "referer": self.referer,
+            "user_agent": self.user_agent
         }
         self.destroy()
 
