@@ -65,12 +65,25 @@ namespace DmansInstaller
                     CopyDirectory(srcExt, dstExt);
                 }
 
+                string srcAssets = Path.Combine(currentDir, "assets");
+                if (Directory.Exists(srcAssets))
+                {
+                    string dstAssets = Path.Combine(installDir, "assets");
+                    CopyDirectory(srcAssets, dstAssets);
+                }
+
                 string dmansExe = Path.Combine(installDir, "Dmans.exe");
                 string desktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
                 string startMenu = Environment.GetFolderPath(Environment.SpecialFolder.Programs);
 
                 CreateShortcut(dmansExe, Path.Combine(desktop, "Dmans.lnk"), "Dmans - Fast Download Accelerator");
                 CreateShortcut(dmansExe, Path.Combine(startMenu, "Dmans.lnk"), "Dmans - Fast Download Accelerator");
+
+                // Register Windows Startup (Run key) so browser extension is always connected!
+                using (RegistryKey runKey = Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run"))
+                {
+                    runKey.SetValue("Dmans", "\"" + dmansExe + "\"");
+                }
 
                 // Register dmans:// protocol
                 using (RegistryKey key = Registry.CurrentUser.CreateSubKey(@"Software\Classes\dmans"))
@@ -102,15 +115,26 @@ namespace DmansInstaller
                 }
 
                 DialogResult launch = MessageBox.Show(
-                    "Installation completed successfully!\n\nShortcuts have been created on your Desktop and Start Menu.\n'dmans' is now available in any terminal.\n\nWould you like to launch Dmans now?",
+                    "Installation completed successfully!\n\nShortcuts have been created on your Desktop and Start Menu.\n'dmans' is now available in any terminal.\nDmans will also start automatically with Windows so your browser extension stays connected.\n\nWould you like to launch Dmans now?",
                     "Dmans Installed",
                     MessageBoxButtons.YesNo,
                     MessageBoxIcon.Information
                 );
 
-                if (launch == DialogResult.Yes && File.Exists(dmansExe))
+                if (launch == DialogResult.Yes)
                 {
-                    Process.Start(dmansExe);
+                    if (File.Exists(dmansExe))
+                    {
+                        ProcessStartInfo psi = new ProcessStartInfo();
+                        psi.FileName = dmansExe;
+                        psi.WorkingDirectory = installDir;
+                        psi.UseShellExecute = true;
+                        Process.Start(psi);
+                    }
+                    else
+                    {
+                        MessageBox.Show("Could not find Dmans.exe in: " + dmansExe, "Notice", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    }
                 }
             }
             catch (Exception ex)

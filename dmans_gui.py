@@ -25,7 +25,13 @@ try:
 except ImportError:
     winsound = None
 
-DB_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dmans_db.json")
+def get_app_dir():
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
+
+APP_DIR = get_app_dir()
+DB_FILE = os.path.join(APP_DIR, "dmans_db.json")
 
 class DmansApiHandler(BaseHTTPRequestHandler):
     app_ref = None

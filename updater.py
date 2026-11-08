@@ -16,7 +16,13 @@ from typing import Dict, Optional, Tuple
 
 import version
 
-CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
+def get_app_dir():
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
+
+APP_DIR = get_app_dir()
+CONFIG_FILE = os.path.join(APP_DIR, "config.json")
 
 def load_config() -> dict:
     defaults = {
