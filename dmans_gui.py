@@ -11,7 +11,7 @@ import subprocess
 import threading
 import urllib.parse
 import webbrowser
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 from typing import Dict, Optional
@@ -52,6 +52,7 @@ class DmansApiHandler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Connection", "close")
 
     def do_OPTIONS(self):
         self.send_response(204)
@@ -151,7 +152,7 @@ class DmansApp(tk.Tk):
         def run_server():
             try:
                 DmansApiHandler.app_ref = self
-                server = HTTPServer(("127.0.0.1", 18888), DmansApiHandler)
+                server = ThreadingHTTPServer(("127.0.0.1", 18888), DmansApiHandler)
                 server.serve_forever()
             except Exception as e:
                 print(f"[!] Dmans API server error: {e}")

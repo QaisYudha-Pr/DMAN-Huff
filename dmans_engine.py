@@ -138,10 +138,22 @@ class DownloadTask:
         url_lower = self.url.lower()
         if any(domain in url_lower for domain in ["youtube.com", "youtu.be", "tiktok.com", "instagram.com/reel", "twitter.com", "x.com"]):
             try:
+                target_url = self.url
+                if "youtube.com" in url_lower:
+                    try:
+                        parsed = urllib.parse.urlparse(self.url)
+                        qs = urllib.parse.parse_qs(parsed.query)
+                        v = qs.get("v", [""])[0]
+                        if v:
+                            target_url = f"https://www.youtube.com/watch?v={v}"
+                    except Exception:
+                        pass
+
                 ydl_opts = {
                     'quiet': True,
                     'no_warnings': True,
                     'skip_download': True,
+                    'noplaylist': True,
                     'extractor_args': {
                         'youtube': {
                             'player_client': ['android', 'ios', 'web']
@@ -149,7 +161,7 @@ class DownloadTask:
                     }
                 }
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(self.url, download=False)
+                    info = ydl.extract_info(target_url, download=False)
                     if info:
                         direct = info.get('url') or (info.get('formats') and info['formats'][-1].get('url'))
                         title = info.get('title')

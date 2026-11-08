@@ -77,7 +77,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
 // 5. Handle Context Menu Click
 chrome.contextMenus.onClicked.addListener((info, tab) => {
-  let targetUrl = info.linkUrl || info.srcUrl || lastRightClickUrl || info.pageUrl || (tab ? tab.url : "");
+  // Always prioritize srcUrl (actual image/video) over linkUrl (page link enclosing the media)
+  let targetUrl = info.srcUrl || lastRightClickUrl || info.linkUrl || info.pageUrl || (tab ? tab.url : "");
   if (targetUrl) {
     sendToDmans(targetUrl);
   }

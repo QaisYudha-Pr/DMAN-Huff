@@ -11,25 +11,38 @@
 
   let lastTargetUrl = "";
 
-  // 1. Right-click helper: accurately captures link/media URL under mouse
+  // 1. Right-click helper: accurately captures media/link URL under mouse (Prioritizes images & videos over enclosing page links!)
   document.addEventListener("contextmenu", (e) => {
     let el = e.target;
     let url = "";
 
-    while (el && el !== document.body) {
-      if (el.tagName === "A" && el.href) {
-        url = el.href;
-        break;
-      }
-      if ((el.tagName === "VIDEO" || el.tagName === "AUDIO" || el.tagName === "SOURCE") && (el.currentSrc || el.src)) {
-        url = el.currentSrc || el.src;
-        break;
-      }
+    // Priority 1: Direct media under the cursor (Image, Video, Audio)
+    if (el) {
       if (el.tagName === "IMG" && el.src) {
         url = el.src;
-        break;
+      } else if ((el.tagName === "VIDEO" || el.tagName === "AUDIO" || el.tagName === "SOURCE") && (el.currentSrc || el.src)) {
+        url = el.currentSrc || el.src;
       }
-      el = el.parentElement;
+    }
+
+    // Priority 2: If no direct media, search parents (Image inside link, Video, or Anchor)
+    if (!url) {
+      let curr = el;
+      while (curr && curr !== document.body) {
+        if (curr.tagName === "IMG" && curr.src) {
+          url = curr.src;
+          break;
+        }
+        if ((curr.tagName === "VIDEO" || curr.tagName === "AUDIO" || curr.tagName === "SOURCE") && (curr.currentSrc || curr.src)) {
+          url = curr.currentSrc || curr.src;
+          break;
+        }
+        if (curr.tagName === "A" && curr.href) {
+          url = curr.href;
+          break;
+        }
+        curr = curr.parentElement;
+      }
     }
 
     if (!url) {
