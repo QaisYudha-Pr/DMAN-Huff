@@ -23,21 +23,22 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
   // Load storage settings
-  if (chrome.storage && chrome.storage.local) {
+  if (typeof chrome !== "undefined" && chrome && chrome.storage && chrome.storage.local) {
     chrome.storage.local.get(["autoIntercept", "interceptLinks"], (res) => {
-      if (toggle) toggle.checked = res.autoIntercept !== false;
-      if (linksToggle) linksToggle.checked = res.interceptLinks !== false;
+      if (chrome.runtime && chrome.runtime.lastError) return;
+      if (toggle && res) toggle.checked = res.autoIntercept !== false;
+      if (linksToggle && res) linksToggle.checked = res.interceptLinks !== false;
     });
 
     if (toggle) {
       toggle.addEventListener("change", () => {
-        chrome.storage.local.set({ autoIntercept: toggle.checked });
+        try { chrome.storage.local.set({ autoIntercept: toggle.checked }); } catch (e) {}
       });
     }
 
     if (linksToggle) {
       linksToggle.addEventListener("change", () => {
-        chrome.storage.local.set({ interceptLinks: linksToggle.checked });
+        try { chrome.storage.local.set({ interceptLinks: linksToggle.checked }); } catch (e) {}
       });
     }
   }

@@ -139,7 +139,6 @@ class DownloadTask:
         if any(domain in url_lower for domain in ["youtube.com", "youtu.be", "tiktok.com", "instagram.com/reel", "twitter.com", "x.com"]):
             try:
                 ydl_opts = {
-                    'format': 'best[ext=mp4]/best',
                     'quiet': True,
                     'no_warnings': True,
                     'skip_download': True
@@ -147,7 +146,7 @@ class DownloadTask:
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     info = ydl.extract_info(self.url, download=False)
                     if info:
-                        direct = info.get('url')
+                        direct = info.get('url') or (info.get('formats') and info['formats'][-1].get('url'))
                         title = info.get('title')
                         if direct:
                             self.url = direct
@@ -159,6 +158,46 @@ class DownloadTask:
             except Exception:
                 pass
 
+    def _parse_headers_for_metadata(self, headers: dict):
+        """Extracts file size, Range support, and RFC 6266 Content-Disposition filename"""
+        if "content-length" in headers and headers["content-length"].isdigit():
+            self.total_size = int(headers["content-length"])
+        if headers.get("accept-ranges", "").lower() == "bytes":
+            self.supports_range = True
+
+        cd = headers.get("content-disposition", "")
+        if cd and (not self.filename or self.filename.endswith(".bin")):
+            import re
+            m_utf = re.search(r"filename\*\s*=\s*(?:UTF-8''|utf-8'')([^;]+)", cd, re.IGNORECASE)
+            if m_utf:
+                fname = urllib.parse.unquote(m_utf.group(1).strip('"\''))
+                self.filename = fname
+                self.filepath = os.path.join(self.output_dir, self.filename)
+            else:
+                m = re.search(r'filename\s*=\s*(?:"([^"]+)"|([^;\s]+))', cd, re.IGNORECASE)
+                if m:
+                    fname = urllib.parse.unquote((m.group(1) or m.group(2)).strip('"\''))
+                    self.filename = fname
+                    self.filepath = os.path.join(self.output_dir, self.filename)
+
+        ct = headers.get("content-type", "").lower()
+        self.category = self._detect_category(self.filename, ct)
+
+    def _detect_category(self, filename: str, content_type: str = "") -> str:
+        ext = os.path.splitext(filename.lower())[1]
+        ct = content_type.lower()
+        if ext in [".zip", ".rar", ".7z", ".tar", ".gz", ".bz2", ".xz", ".iso", ".cab"] or any(x in ct for x in ["zip", "compressed", "tar"]):
+            return "Compressed"
+        elif ext in [".mp4", ".mkv", ".webm", ".avi", ".mov", ".flv", ".ts", ".m4v"] or "video" in ct:
+            return "Video"
+        elif ext in [".mp3", ".wav", ".flac", ".aac", ".ogg", ".m4a"] or "audio" in ct:
+            return "Music"
+        elif ext in [".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".txt"] or "pdf" in ct or "msword" in ct:
+            return "Documents"
+        elif ext in [".exe", ".msi", ".apk", ".dmg", ".bin"] or "octet-stream" in ct:
+            return "Programs"
+        return "General"
+
     def probe(self):
         """Detect file length and Range support via HTTP HEAD or GET"""
         self._resolve_streaming_url()
@@ -169,10 +208,7 @@ class DownloadTask:
         try:
             with urllib.request.urlopen(req, timeout=12) as resp:
                 headers = {k.lower(): v for k, v in resp.headers.items()}
-                if "content-length" in headers:
-                    self.total_size = int(headers["content-length"])
-                if headers.get("accept-ranges", "").lower() == "bytes":
-                    self.supports_range = True
+                self._parse_headers_for_metadata(headers)
         except Exception:
             pass
 
@@ -184,6 +220,8 @@ class DownloadTask:
                     "Connection": "keep-alive"
                 })
                 with urllib.request.urlopen(probe_req, timeout=12) as resp:
+                    headers = {k.lower(): v for k, v in resp.headers.items()}
+                    self._parse_headers_for_metadata(headers)
                     if resp.status == 206:
                         self.supports_range = True
                         cr = resp.headers.get("Content-Range", "")
@@ -195,8 +233,8 @@ class DownloadTask:
                         cl = resp.headers.get("Content-Length")
                         if cl and cl.isdigit():
                             self.total_size = int(cl)
-            except Exception as e:
-                print(f"[!] Warning: Probe encountered error: {e}")
+            except Exception:
+                pass
 
     def _save_metadata(self):
         with self.meta_lock:
