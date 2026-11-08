@@ -793,6 +793,19 @@ class AddDownloadDialog(tk.Toplevel):
 
         if initial_url:
             self.file_var.set(self._guess_filename(initial_url))
+            if any(k in initial_url.lower() for k in ["youtube.com", "youtu.be", "tiktok.com"]):
+                def _fetch_title():
+                    try:
+                        import yt_dlp
+                        ydl = yt_dlp.YoutubeDL({'quiet': True, 'skip_download': True, 'extractor_args': {'youtube': {'player_client': ['android', 'ios', 'web']}}})
+                        info = ydl.extract_info(initial_url, download=False)
+                        if info and info.get('title'):
+                            clean = "".join(c for c in info['title'] if c.isalnum() or c in " ._- ()")
+                            ext = info.get('ext', 'mp4')
+                            self.after(0, lambda: self.file_var.set(f"{clean}.{ext}"))
+                    except Exception:
+                        pass
+                threading.Thread(target=_fetch_title, daemon=True).start()
 
         self.url_var.trace_add("write", lambda *_: self.file_var.set(self._guess_filename(self.url_var.get())))
         self._build_ui()

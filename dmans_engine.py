@@ -141,20 +141,31 @@ class DownloadTask:
                 ydl_opts = {
                     'quiet': True,
                     'no_warnings': True,
-                    'skip_download': True
+                    'skip_download': True,
+                    'extractor_args': {
+                        'youtube': {
+                            'player_client': ['android', 'ios', 'web']
+                        }
+                    }
                 }
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     info = ydl.extract_info(self.url, download=False)
                     if info:
                         direct = info.get('url') or (info.get('formats') and info['formats'][-1].get('url'))
                         title = info.get('title')
+                        ext = info.get('ext', 'mp4')
                         if direct:
                             self.url = direct
-                        if title and (not self.filename or self.filename.endswith(".bin") or "watch" in self.filename):
-                            clean = "".join(c for c in title if c.isalnum() or c in " ._- ()")
-                            ext = info.get('ext', 'mp4')
+                        
+                        if self.filename:
+                            if not os.path.splitext(self.filename)[1]:
+                                self.filename = f"{self.filename}.{ext}"
+                        if not self.filename or self.filename.endswith(".bin") or "watch" in self.filename:
+                            clean = "".join(c for c in title if c.isalnum() or c in " ._- ()") if title else "video"
                             self.filename = f"{clean}.{ext}"
-                            self.filepath = os.path.join(self.output_dir, self.filename)
+                        
+                        self.filepath = os.path.join(self.output_dir, self.filename)
+                        self.category = "Video"
             except Exception:
                 pass
 
