@@ -1,78 +1,141 @@
-# PyIDM - Custom High-Performance Download Manager
+# ⚡ PyIDM - Internet Download Manager Clone & Accelerator
 
-A zero-dependency, multi-threaded download accelerator implementing the core architecture and acceleration techniques popularized by **Internet Download Manager (IDM)**.
-
----
-
-## 🔬 How IDM Works (Under the Hood)
-
-Internet Download Manager (and tools like `aria2`) does not possess "magic speed"—it leverages fundamental TCP/IP and HTTP/1.1 protocols to bypass standard browser bottlenecks:
-
-### 1. The Single-Connection Bottleneck
-When a normal web browser downloads a file:
-* It establishes a single TCP connection.
-* Due to TCP congestion control (Slow Start, packet loss recovery), high latency, or server-side per-connection bandwidth throttles (e.g., limiting each connection to 500 KB/s), your maximum network bandwidth is often underutilized.
-
-### 2. HTTP Byte Range Requests (RFC 7233)
-Web servers that serve files support the `Range` HTTP header:
-```http
-GET /large_file.zip HTTP/1.1
-Host: example.com
-Range: bytes=0-10485759
-```
-The server responds with HTTP **`206 Partial Content`**, transmitting only that requested byte slice.
-
-### 3. Dynamic Segmentation
-IDM splits the file's total byte length into $N$ segments (e.g. 8, 16, or 32 connections):
-* **Connection 1:** Bytes `0` to `25,000,000`
-* **Connection 2:** Bytes `25,000,001` to `50,000,000`
-* **Connection 3:** Bytes `50,000,001` to `75,000,000`
-* **Connection 4:** Bytes `75,000,001` to `100,000,000`
-
-By opening multiple simultaneous TCP streams, it saturates your available bandwidth and bypasses per-connection speed caps.
-
-### 4. Direct In-Place Sparse Writing (No 99% Freeze)
-Old download managers downloaded parts into separate files (`part1.tmp`, `part2.tmp`) and then spent minutes copying and concatenating them at the end.
-Modern download engines pre-allocate a sparse file of the exact target length:
-```python
-file.seek(offset)
-file.write(chunk)
-```
-Each thread seeks directly to its assigned byte position and writes chunks live. When the last chunk arrives, the download is instantaneously complete.
-
-### 5. Pause & Resume (State Persistence)
-Progress is saved to a `.idmmeta` JSON record. If the network drops or you pause, only the unfinished byte ranges are re-requested on resume.
+<p align="center">
+  <b>High-Speed Multi-Threaded Download Manager for Windows</b><br>
+  <i>Akselerator Unduhan Cepat Berbasis Segmentasi Dinamis (RFC 7233) dengan Tampilan & Ekstensi Browser ala IDM.</i>
+</p>
 
 ---
 
-## 🚀 How to Run
+## 🌐 Bahasa Indonesia
 
-### Option A: Desktop GUI (IDM Clone)
-Double-click `run_gui.bat` or run from any terminal:
+### 📌 Ringkasan Proyek
+PyIDM adalah aplikasi download manager mandiri berformat **`.exe`** (tanpa script `.bat`) yang mereplikasi cara kerja dan fitur legendaris **Internet Download Manager (IDM)**:
+* **Multi-koneksi paralel (1 - 32 thread)** untuk memaksimalkan bandwidth internet.
+* **Integrasi Browser (Chrome / Edge / Brave)** dengan penangkap link otomatis dan tombol melayang download video.
+* **Installer native (`Installer.exe`)** lengkap dengan shortcut Desktop, Start Menu, dan Uninstaller.
+* **Sistem Auto-Update** langsung dari GitHub Releases.
+
+---
+
+### ❓ Mengapa Opsi "Download with..." Sebelumnya Tidak Muncul?
+Pada versi awal browser extension:
+1. **Konteks Klik Kanan Terlalu Terbatas**: Menu klik kanan hanya dipasang untuk tag tautan HTML (`<a href>`) standar. Jika tombol unduhan di website dibungkus oleh elemen `<div>`, `<button>`, `<span>`, atau custom player (seperti YouTube, streaming player, tombol cloud storage), browser tidak mendeteksinya sebagai tautan sehingga opsi klik kanan **tidak muncul**.
+2. **Tidak Ada Content Script Pendeteksi Media**: IDM asli menggunakan *content script* yang disuntikkan ke dalam halaman web untuk mendeteksi tag `<video>` dan `<audio>`.
+
+#### 🛠️ Perbaikan di Ekstensi Versi 2.0 (Sekarang):
+* **Konteks Universal (`contexts: ["all"]`)**: Menu **"⚡ Download with PyIDM"** sekarang dijamin **selalu muncul di mana saja** saat Anda klik kanan di halaman web apa pun!
+* **Tombol Melayang Video (Floating Bar)**: Saat membuka video di web, tombol biru **"⚡ Download Video (PyIDM)"** akan otomatis muncul di sudut video.
+* **Auto-Catch Unduhan**: Klik pada link file `.zip`, `.exe`, `.iso`, `.mp4`, `.pdf`, dsb., akan otomatis dialihkan ke PyIDM.
+
+---
+
+### 🚀 Cara Pasang Ekstensi Browser (Chrome / Edge / Brave)
+1. Buka browser Anda:
+   * **Chrome / Brave**: buka `chrome://extensions`
+   * **Microsoft Edge**: buka `edge://extensions`
+2. Aktifkan **"Developer mode"** (Mode Pengembang) di pojok kanan atas.
+3. Klik tombol **"Load unpacked"** (Muat yang belum dibongkar) di pojok kiri atas.
+4. Pilih folder:
+   ```text
+   C:\Users\asus\Downloads\11-12-IDM\browser_extension
+   ```
+5. **Selesai!** Ekstensi sekarang aktif dan langsung terhubung dengan aplikasi PyIDM desktop.
+
+---
+
+### 💻 Cara Install Aplikasi (Tanpa .bat)
+Semua file telah dikompilasi menjadi file biner native **`.exe`**:
+
+1. **Pasang ke Komputer**:
+   * Klik dua kali **`Installer.exe`**.
+   * Aplikasi akan otomatis dipasang ke direktori standar Windows (`%LOCALAPPDATA%\Programs\PyIDM`).
+   * Shortcut akan otomatis dibuat di **Desktop** dan **Start Menu**.
+   * Perintah `idm` otomatis aktif di PowerShell & Command Prompt.
+2. **Buka Aplikasi**:
+   * Klik shortcut **PyIDM** di Desktop atau cari di Start Menu.
+   * Atau klik dua kali **`PyIDM.exe`**.
+3. **Menggunakan CLI di Terminal**:
+   ```powershell
+   idm "https://example.com/file.zip" -c 16
+   ```
+4. **Hapus Instalasi (Uninstall)**:
+   * Jalankan **`Uninstall.exe`** atau hapus dari Windows Settings -> Installed Apps.
+
+---
+
+### 🔬 Cara Kerja PyIDM (Under The Hood)
+1. **RFC 7233 HTTP Byte Ranges**: Saat file mulai diunduh, PyIDM mengirim permintaan `Range: bytes=0-0` untuk mengecek apakah server mendukung pemotongan file.
+2. **Dynamic Work Slicing**: File dibagi menjadi $N$ segmen byte (misalnya 16 koneksi). Masing-masing segmen berjalan di thread terpisah.
+3. **Sparse File Writing (Bebas Macet di 99%)**: File tujuan dialokasikan langsung sesuai ukuran aslinya. Tiap thread menulis datanya secara langsung menggunakan penunjuk offset (`seek`). Tidak ada proses penggabungan lambat di akhir unduhan.
+4. **Pemberitahuan & Audio**: Memutar notifikasi audio Windows asli saat unduhan selesai dan memunculkan dialog `Open File` / `Open Folder`.
+
+---
+
+---
+
+## 🇬🇧 English
+
+### 📌 Overview
+PyIDM is a standalone Windows **`.exe`** application (no `.bat` scripts needed) that implements the core acceleration architecture and UI popularized by **Internet Download Manager (IDM)**:
+* **Multi-threaded dynamic segmentation (1 - 32 streams)** for maximum network speed.
+* **Chrome / Edge / Brave Browser Extension** with auto-intercept and floating video download button.
+* **Native GUI Installer (`Installer.exe`)** with Desktop/Start Menu shortcuts and clean uninstallation.
+* **GitHub Auto-Update System** directly from your repository releases.
+
+---
+
+### ❓ Why Didn't "Download with..." Show Up Before?
+In the initial extension version:
+1. **Restricted Contexts**: The context menu was registered strictly for `<a href>` elements. Many modern websites wrap download links inside `<div>`, `<button>`, or JavaScript event handlers. Chrome did not recognize these as traditional links, causing the option not to appear.
+2. **Missing Media Sniffer**: IDM uses an in-page content script to detect `<video>` and `<audio>` streams directly in the DOM.
+
+#### 🛠️ What Was Fixed in Extension v2.0:
+* **Universal Context (`contexts: ["all"]`)**: The **"⚡ Download with PyIDM"** option is now guaranteed to show on **every single right-click**.
+* **Floating Video Bar**: Displays a sleek floating **"⚡ Download Video (PyIDM)"** badge over HTML5 videos on any website.
+* **Auto-Catch Downloads**: Automatically catches browser downloads and file extension clicks (`.zip`, `.exe`, `.iso`, `.mp4`, `.pdf`).
+
+---
+
+### 🚀 Installing the Browser Extension
+1. Open your browser:
+   * **Chrome / Brave**: `chrome://extensions`
+   * **Microsoft Edge**: `edge://extensions`
+2. Enable **"Developer mode"** in the top-right corner.
+3. Click **"Load unpacked"** in the top-left.
+4. Select the folder:
+   ```text
+   C:\Users\asus\Downloads\11-12-IDM\browser_extension
+   ```
+
+---
+
+### 💻 Installing the Application (No .bat)
+Everything is packaged into native Windows **`.exe`** executables:
+
+| File | Purpose |
+| :--- | :--- |
+| **`Installer.exe`** | Setup wizard that installs PyIDM, creates Desktop/Start Menu shortcuts, and configures PATH |
+| **`PyIDM.exe`** | The main desktop application GUI |
+| **`idm.exe`** | Terminal / command-line downloader |
+| **`Uninstall.exe`** | Cleanly removes all application files, shortcuts, and registry entries |
+
+---
+
+### 📤 How to Push This Project to Your GitHub
+
 ```powershell
-idm-gui
+git init
+git add .
+git commit -m "Initial commit: PyIDM full app with installer and browser extension"
+git branch -M main
+git remote add origin https://github.com/YOUR_USERNAME/PyIDM.git
+git push -u origin main
 ```
-* **IDM Layout**: Category sidebar (`All Downloads`, `Unfinished`, `Finished`, `Compressed`, `Video`, `Music`, `Documents`, `Programs`).
-* **Main Downloads Table**: Lists file name, size, status, progress, speed, time left, category, and date added.
-* **IDM Progress Dialog**: Double-click any download to open the iconic IDM dynamic segment visualizer showing real-time multi-threaded chunk progress.
-* **Right-Click Context Menu**: Resume, Pause, Open File, Open Folder, Copy Download Link, Delete.
-* **Clipboard Sniffer**: Automatically detects downloadable URLs copied to your Windows clipboard and prompts to download.
-* **Persistent History**: Saves all download states across restarts in `downloads_db.json`.
 
-### Option B: Command Line (CLI)
-Run globally from any terminal:
+To release a new version that triggers the auto-updater:
 ```powershell
-idm "https://example.com/file.zip" -c 16 -o "C:\Downloads"
+git tag -a v1.0.1 -m "Release v1.0.1"
+git push origin v1.0.1
 ```
-* `-c / --connections`: Number of parallel threads (1-32, default: 8).
-* `-o / --output-dir`: Destination folder.
-* `-f / --filename`: Custom output filename.
-
----
-
-## 📁 File Structure
-* [idm_engine.py](file:///c:/Users/asus/Downloads/11-12-IDM/idm_engine.py): Multi-threaded download engine with Range support and state persistence.
-* [idm_gui.py](file:///c:/Users/asus/Downloads/11-12-IDM/idm_gui.py): Tkinter desktop application with live per-thread visualizer.
-* [idm_cli.py](file:///c:/Users/asus/Downloads/11-12-IDM/idm_cli.py): CLI interface with live ASCII progress bar and ETA.
-* [run_gui.bat](file:///c:/Users/asus/Downloads/11-12-IDM/run_gui.bat): Quick double-click launcher for the desktop GUI.
-
+The included GitHub Actions workflow ([`.github/workflows/release.yml`](file:///c:/Users/asus/Downloads/11-12-IDM/.github/workflows/release.yml)) will automatically build the `.exe` files and publish a GitHub Release!

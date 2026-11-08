@@ -1,0 +1,43 @@
+name: Build and Release PyIDM
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Dependencies
+        run: |
+          pip install pyinstaller
+
+      - name: Build Executables
+        run: |
+          pyinstaller --onefile --noconsole --name PyIDM idm_gui.py
+          pyinstaller --onefile --name idm idm_cli.py
+          & "C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /target:winexe /out:dist\Installer.exe Installer.cs
+          & "C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /target:winexe /out:dist\Uninstall.exe Uninstaller.cs
+          Copy-Item -Recurse browser_extension dist\browser_extension
+          Compress-Archive -Path dist\* -DestinationPath PyIDM-Release.zip
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            PyIDM-Release.zip
+            dist/Installer.exe
+            dist/PyIDM.exe
+            dist/idm.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+

@@ -1,0 +1,26 @@
+# Python & Bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.spec
+
+# PyInstaller & Build artifacts
+build/
+dist/
+
+# Temporary downloads & IDM parts
+*.idmpart
+*.idmmeta
+*.part
+*.tmp
+
+# User database & local config
+downloads_db.json
+config.json
+
+# IDE & OS
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+

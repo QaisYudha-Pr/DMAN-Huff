@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <style>
     body {
-      width: 250px;
+      width: 270px;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       padding: 14px;
       margin: 0;
@@ -12,7 +12,7 @@
       color: #1e293b;
     }
     h2 {
-      margin: 0 0 8px 0;
+      margin: 0 0 10px 0;
       font-size: 15px;
       display: flex;
       align-items: center;
@@ -22,16 +22,17 @@
     .status-badge {
       display: inline-flex;
       align-items: center;
-      gap: 5px;
+      gap: 6px;
       font-size: 12px;
-      padding: 4px 8px;
-      border-radius: 12px;
+      font-weight: 500;
+      padding: 5px 10px;
+      border-radius: 14px;
       background: #e2e8f0;
       margin-bottom: 12px;
     }
     .dot {
-      width: 8px;
-      height: 8px;
+      width: 9px;
+      height: 9px;
       border-radius: 50%;
       background: #94a3b8;
     }
@@ -45,11 +46,18 @@
       padding: 8px 0;
       border-top: 1px solid #e2e8f0;
     }
+    .toggle-row input {
+      cursor: pointer;
+    }
     .help-text {
       font-size: 11px;
       color: #64748b;
-      margin-top: 10px;
+      margin-top: 12px;
       line-height: 1.4;
+      background: #ffffff;
+      padding: 8px;
+      border-radius: 6px;
+      border: 1px solid #e2e8f0;
     }
   </style>
 </head>
@@ -57,22 +65,30 @@
   <h2>⚡ PyIDM Integration</h2>
   <div class="status-badge">
     <div id="dot" class="dot"></div>
-    <span id="status-text">Checking PyIDM...</span>
+    <span id="status-text">Checking PyIDM App...</span>
   </div>
 
   <div class="toggle-row">
     <span>Auto-catch downloads:</span>
-    <input type="checkbox" id="intercept-toggle">
+    <input type="checkbox" id="intercept-toggle" checked>
+  </div>
+
+  <div class="toggle-row">
+    <span>Catch file links (.zip, .mp4, etc.):</span>
+    <input type="checkbox" id="links-toggle" checked>
   </div>
 
   <div class="help-text">
-    Right-click any download link or video and select <b>"Download with PyIDM"</b> to download at maximum speed.
+    💡 <b>Cara Pakai / How to Use:</b><br>
+    1. Klik kanan di mana saja ➔ <b>"⚡ Download with PyIDM"</b><br>
+    2. Tombol download otomatis muncul di atas video web!
   </div>
 
   <script>
     const dot = document.getElementById('dot');
     const statusText = document.getElementById('status-text');
     const toggle = document.getElementById('intercept-toggle');
+    const linksToggle = document.getElementById('links-toggle');
 
     // Check backend status
     fetch('http://127.0.0.1:18888/ping')
@@ -83,18 +99,22 @@
       })
       .catch(() => {
         dot.className = 'dot offline';
-        statusText.textContent = 'PyIDM Engine: Offline';
+        statusText.textContent = 'PyIDM Engine: Offline (Buka PyIDM)';
       });
 
     // Load settings
-    chrome.storage.local.get(['autoIntercept'], res => {
-      toggle.checked = !!res.autoIntercept;
+    chrome.storage.local.get(['autoIntercept', 'interceptLinks'], res => {
+      toggle.checked = res.autoIntercept !== false;
+      linksToggle.checked = res.interceptLinks !== false;
     });
 
     toggle.addEventListener('change', () => {
       chrome.storage.local.set({ autoIntercept: toggle.checked });
     });
+
+    linksToggle.addEventListener('change', () => {
+      chrome.storage.local.set({ interceptLinks: linksToggle.checked });
+    });
   </script>
 </body>
 </html>
-

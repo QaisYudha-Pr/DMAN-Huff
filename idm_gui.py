@@ -10,11 +10,14 @@ import time
 import subprocess
 import threading
 import urllib.parse
+import webbrowser
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 from typing import Dict, Optional
 
+import version
+import updater
 from idm_engine import DownloadTask
 
 try:
@@ -74,7 +77,7 @@ class PyIDMApiHandler(BaseHTTPRequestHandler):
 class PyIDMApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("PyIDM - Internet Download Manager")
+        self.title(f"PyIDM v{version.VERSION} - Internet Download Manager")
         self.geometry("980x620")
         self.minsize(800, 500)
 
