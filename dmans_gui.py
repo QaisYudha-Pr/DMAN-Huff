@@ -82,6 +82,16 @@ class DmansApp(tk.Tk):
         self.geometry("980x620")
         self.minsize(800, 500)
 
+        # Apply icon if available
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        for icon_candidate in [os.path.join(base_dir, "assets", "app.ico"), os.path.join(base_dir, "app.ico")]:
+            if os.path.exists(icon_candidate):
+                try:
+                    self.iconbitmap(icon_candidate)
+                    break
+                except Exception:
+                    pass
+
         self.style = ttk.Style(self)
         if "vista" in self.style.theme_names():
             self.style.theme_use("vista")
