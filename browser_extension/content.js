@@ -11,7 +11,7 @@
 
   let lastTargetUrl = "";
 
-  // 1. Right-click helper: captures target link/media url
+  // 1. Right-click helper: accurately captures link/media URL under mouse
   document.addEventListener("contextmenu", (e) => {
     let el = e.target;
     let url = "";
@@ -21,12 +21,12 @@
         url = el.href;
         break;
       }
-      if ((el.tagName === "VIDEO" || el.tagName === "AUDIO" || el.tagName === "SOURCE") && el.src) {
-        url = el.src;
+      if ((el.tagName === "VIDEO" || el.tagName === "AUDIO" || el.tagName === "SOURCE") && (el.currentSrc || el.src)) {
+        url = el.currentSrc || el.src;
         break;
       }
-      if (el.currentSrc) {
-        url = el.currentSrc;
+      if (el.tagName === "IMG" && el.src) {
+        url = el.src;
         break;
       }
       el = el.parentElement;
@@ -42,13 +42,13 @@
     } catch (err) {}
   }, true);
 
-  // 2. Intercept direct file links
+  // 2. Intercept direct file link clicks (.zip, .mp4, .exe, etc.)
   document.addEventListener("click", (e) => {
     let link = e.target.closest("a");
     if (!link || !link.href) return;
 
-    let href = link.href.split("?")[0].toLowerCase();
-    let isDownloadable = DOWNLOAD_EXTS.some((ext) => href.endsWith(ext));
+    let cleanUrl = link.href.split("?")[0].toLowerCase();
+    let isDownloadable = DOWNLOAD_EXTS.some((ext) => cleanUrl.endsWith(ext));
 
     if (isDownloadable) {
       try {
@@ -71,14 +71,27 @@
     const mediaElements = document.querySelectorAll("video, audio");
     mediaElements.forEach((media) => {
       if (media.dataset.dmansAttached) return;
+
+      // Ensure media element is visible and has dimension
+      const rect = media.getBoundingClientRect();
+      if (rect.width < 50 && rect.height < 50 && media.tagName === "VIDEO") {
+        return; // Ignore invisible tracking video pixels
+      }
+
       media.dataset.dmansAttached = "true";
 
-      const parent = media.parentElement;
-      if (!parent) return;
+      // Find appropriate container
+      let container = media.parentElement;
+      const ytPlayer = media.closest(".html5-video-player") || media.closest("#movie_player");
+      if (ytPlayer) {
+        container = ytPlayer;
+      }
 
-      const computedStyle = window.getComputedStyle(parent);
+      if (!container) return;
+
+      const computedStyle = window.getComputedStyle(container);
       if (computedStyle.position === "static") {
-        parent.style.position = "relative";
+        container.style.position = "relative";
       }
 
       const bar = document.createElement("div");
@@ -99,6 +112,18 @@
         }
         if (!streamUrl) streamUrl = window.location.href;
 
+        // If it's a blob URL (MSE streaming)
+        if (streamUrl.startsWith("blob:")) {
+          bar.innerHTML = `<span>⚠️ Blob Stream (Right-click link)</span>`;
+          setTimeout(() => {
+            bar.innerHTML = `
+              <svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+              <span>Download with Dmans</span>
+            `;
+          }, 2500);
+          return;
+        }
+
         try {
           chrome.runtime.sendMessage({
             type: "DOWNLOAD_URL",
@@ -115,10 +140,10 @@
         }, 2000);
       });
 
-      parent.appendChild(bar);
+      container.appendChild(bar);
     });
   }
 
-  setInterval(attachVideoButtons, 2000);
+  setInterval(attachVideoButtons, 1500);
   attachVideoButtons();
 })();

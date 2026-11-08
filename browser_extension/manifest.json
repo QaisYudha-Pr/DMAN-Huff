@@ -1,13 +1,14 @@
 {
   "manifest_version": 3,
   "name": "Dmans Download Integration",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Fast download integration and media sniffer for Dmans Download Accelerator.",
   "permissions": [
     "contextMenus",
     "downloads",
     "storage",
-    "activeTab"
+    "activeTab",
+    "notifications"
   ],
   "host_permissions": [
     "<all_urls>",
@@ -24,8 +25,18 @@
       "run_at": "document_idle"
     }
   ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Dmans Integration"
+    "default_title": "Dmans Integration",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
   }
 }
