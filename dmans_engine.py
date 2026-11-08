@@ -13,6 +13,11 @@ import urllib.parse
 import threading
 from typing import Dict, List, Optional, Callable
 
+try:
+    import yt_dlp
+except ImportError:
+    yt_dlp = None
+
 # Set global socket options for high-throughput networking
 socket.setdefaulttimeout(30)
 DEFAULT_USER_AGENT = "Dmans/1.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -126,8 +131,37 @@ class DownloadTask:
                 name = "download_" + str(int(time.time())) + ".bin"
         return urllib.parse.unquote(name)
 
+    def _resolve_streaming_url(self):
+        """Resolves direct stream URLs for YouTube, TikTok, etc. using yt_dlp if available"""
+        if not yt_dlp:
+            return
+        url_lower = self.url.lower()
+        if any(domain in url_lower for domain in ["youtube.com", "youtu.be", "tiktok.com", "instagram.com/reel", "twitter.com", "x.com"]):
+            try:
+                ydl_opts = {
+                    'format': 'best[ext=mp4]/best',
+                    'quiet': True,
+                    'no_warnings': True,
+                    'skip_download': True
+                }
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(self.url, download=False)
+                    if info:
+                        direct = info.get('url')
+                        title = info.get('title')
+                        if direct:
+                            self.url = direct
+                        if title and (not self.filename or self.filename.endswith(".bin") or "watch" in self.filename):
+                            clean = "".join(c for c in title if c.isalnum() or c in " ._- ()")
+                            ext = info.get('ext', 'mp4')
+                            self.filename = f"{clean}.{ext}"
+                            self.filepath = os.path.join(self.output_dir, self.filename)
+            except Exception:
+                pass
+
     def probe(self):
         """Detect file length and Range support via HTTP HEAD or GET"""
+        self._resolve_streaming_url()
         req = urllib.request.Request(self.url, method="HEAD")
         req.add_header("User-Agent", DEFAULT_USER_AGENT)
         req.add_header("Connection", "keep-alive")
