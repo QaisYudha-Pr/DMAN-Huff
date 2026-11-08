@@ -981,3 +981,4 @@ class DownloadCompleteDialog(tk.Toplevel):
 if __name__ == "__main__":
     app = DmansApp()
     app.mainloop()
+

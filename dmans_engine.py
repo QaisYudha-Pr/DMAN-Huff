@@ -420,3 +420,4 @@ class DownloadTask:
     def cancel(self):
         self.is_cancelled = True
         self.status = "Cancelled"
+
