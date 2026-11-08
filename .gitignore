@@ -16,7 +16,10 @@ dist/
 
 # User database & local config
 downloads_db.json
+dmans_db.json
 config.json
+dmans_crash.log
+ytb
 
 # IDE & OS
 .vscode/

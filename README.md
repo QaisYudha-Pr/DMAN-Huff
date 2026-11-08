@@ -1,6 +1,10 @@
 # ⚡ Dmans - High-Speed Download Accelerator
 
 <p align="center">
+  <img src="assets/logo.png" width="130" alt="Dmans Official Logo" />
+</p>
+
+<p align="center">
   <a href="https://git.io/typing-svg">
     <img src="https://readme-typing-svg.demolab.com?font=Fira+Code&weight=600&size=22&pause=1000&color=0284C7&center=true&vCenter=true&width=680&lines=⚡+Dmans+-+High-Speed+Download+Accelerator;🚀+RFC+7233+Dynamic+Multi-Threaded+Segmentation;🌐+Universal+Chrome+%2F+Edge+Browser+Integration;📦+Native+Windows+Executables+(No+.bat+Scripts);🛡️+100%25+Free%2C+Open-Source%2C+No+Ads%2C+No+Nagware" alt="Typing SVG" />
   </a>
@@ -152,17 +156,20 @@ sequenceDiagram
 
 ### 5. Kenapa Sempat Terdeteksi Antivirus? (Penjelasan & Solusi)
 
-Peringatan dari Windows Defender atau Windows SmartScreen pada aplikasi kompilasi lokal adalah hal yang **sangat wajar (100% False Positive)**:
+Peringatan dari Windows Defender, Avast, atau Windows SmartScreen pada aplikasi kompilasi lokal adalah hal yang **sangat wajar (100% False Positive)**:
 1. **Windows SmartScreen Gate**: Microsoft menandai semua file executable baru yang belum memiliki riwayat reputasi global atau belum menandatangani sertifikat digital berbayar (\$400+/tahun EV Code Signing).
-2. **Pola Unpacking Bundler**: PyInstaller membungkus biner ke dalam memori sementara saat dijalankan, yang terkadang dicurigai heuristik generik.
+2. **Avast / AVG Behavior Shield (`IDP.HELU`)**: Avast menandai koneksi multi-thread cepat dari executable lokal baru sebagai perilaku mencurigakan padahal ini murni protokol unduhan HTTP Range paralel.
 3. **Penyematan Metadata PE Resmi di Rilis Ini**:
-   Semua file `.exe` (`Dmans.exe`, `dmans-cli.exe`, `Installer.exe`, dan `Uninstall.exe`) telah disematkan **Microsoft PE Version Resource resmi** (`version_info.txt`) lengkap dengan `CompanyName`, `FileDescription`, `LegalCopyright`, dan `ProductVersion`, sehingga tidak lagi terdeteksi sebagai biner mencurigakan.
+   Semua file `.exe` (`Dmans.exe`, `dmans-cli.exe`, `Installer.exe`, dan `Uninstall.exe`) telah disematkan **Microsoft PE Version Resource resmi** (`version_info.txt`) lengkap dengan `CompanyName`, `FileDescription`, `LegalCopyright`, dan `ProductVersion`, serta icon aplikasi resmi.
 
-#### 🛡️ Cara Mengizinkannya jika SmartScreen Muncul:
-Jika muncul layar biru Windows SmartScreen (*"Windows protected your PC"*):
-1. Klik teks **"More info"** (*Info selengkapnya*).
-2. Klik tombol **"Run anyway"** (*Tetap jalankan*).
-3. Aplikasi akan langsung berjalan normal dan aman.
+#### 🛡️ Cara Mengizinkannya:
+* **Pada Windows SmartScreen**:
+  1. Klik teks **"More info"** (*Info selengkapnya*).
+  2. Klik tombol **"Run anyway"** (*Tetap jalankan*).
+* **Pada Avast Antivirus**:
+  1. Buka Avast ➔ Masuk menu **Settings (Pengaturan)** ➔ **Exceptions (Pengecualian)**.
+  2. Tambahkan folder instalasi: `%LOCALAPPDATA%\Programs\Dmans\*`.
+  3. Atau jika masuk ke Virus Chest (Karantina), klik titik tiga ➔ **"Restore and add exception"**.
 
 ---
 
