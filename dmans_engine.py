@@ -153,11 +153,12 @@ class DownloadTask:
 
     def _resolve_streaming_url(self):
         """Resolves direct stream URLs for YouTube, TikTok, etc. using yt_dlp if available"""
-        if not yt_dlp:
-            return
         url_lower = self.original_url.lower()
         if any(domain in url_lower for domain in ["youtube.com", "youtu.be", "tiktok.com", "instagram.com/reel", "twitter.com", "x.com"]):
             self.is_stream_task = True
+            self.category = "Video"
+            if not yt_dlp:
+                return
             try:
                 target_url = self.original_url
                 if "youtube.com" in url_lower:
@@ -181,6 +182,9 @@ class DownloadTask:
                         }
                     }
                 }
+                node_path = r'C:\Program Files\node-v26.13.0-win-x64\node.exe'
+                if os.path.exists(node_path):
+                    ydl_opts['js_runtimes'] = {'node': {'path': node_path}}
                 http_headers = {'User-Agent': self.user_agent}
                 if self.cookies:
                     http_headers['Cookie'] = self.cookies
@@ -195,7 +199,6 @@ class DownloadTask:
                         ext = info.get('ext', 'mp4')
                         clean = "".join(c for c in title if c.isalnum() or c in " ._- ()") if title else "video"
                         self._set_filename(f"{clean}.{ext}")
-                        self.category = "Video"
                         if info.get('filesize'):
                             self.total_size = info.get('filesize')
                         elif info.get('filesize_approx'):
@@ -530,17 +533,39 @@ class DownloadTask:
                 speed = d.get("speed") or 0.0
                 self.current_speed = speed
 
-                if not self.segments:
-                    self.segments = [Segment(0, 0, self.total_size or downloaded or 1, downloaded)]
-                else:
-                    self.segments[0].current = downloaded
-                    self.segments[0].end = self.total_size or downloaded
-                    self.segments[0].status = "DOWNLOADING"
+                num_segs = self.num_connections or 8
+                if not self.segments or len(self.segments) != num_segs:
+                    total_est = self.total_size or (downloaded * 2) or 1000000
+                    seg_size = max(1, total_est // num_segs)
+                    self.segments = []
+                    for i in range(num_segs):
+                        s_start = i * seg_size
+                        s_end = (i + 1) * seg_size if i < num_segs - 1 else total_est
+                        self.segments.append(Segment(i, s_start, s_end, s_start))
+
+                remaining = downloaded
+                for seg in self.segments:
+                    seg_cap = max(1, seg.end - seg.start)
+                    if remaining >= seg_cap:
+                        seg.current = seg.end
+                        seg.status = "COMPLETED"
+                        remaining -= seg_cap
+                    elif remaining > 0:
+                        seg.current = seg.start + remaining
+                        seg.status = "DOWNLOADING"
+                        remaining = 0
+                    else:
+                        seg.current = seg.start
+                        seg.status = "PENDING"
 
                 if self.progress_callback:
                     self.progress_callback(self.get_progress())
             elif status == "finished":
                 self.status = "Finalizing"
+                if self.segments:
+                    for seg in self.segments:
+                        seg.current = seg.end
+                        seg.status = "COMPLETED"
                 if self.progress_callback:
                     self.progress_callback(self.get_progress())
 
@@ -550,18 +575,18 @@ class DownloadTask:
         if self.format_spec:
             ydl_format = self.format_spec
         elif self.quality == "1080p":
-            ydl_format = 'bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080]/best'
+            ydl_format = 'bestvideo[height<=1080]+bestaudio/best[height<=1080]/best'
         elif self.quality == "720p":
-            ydl_format = 'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=720]+bestaudio/best[height<=720]/best'
+            ydl_format = 'bestvideo[height<=720]+bestaudio/best[height<=720]/best'
         elif self.quality == "480p":
-            ydl_format = 'bestvideo[height<=480][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=480]+bestaudio/best[height<=480]/best'
+            ydl_format = 'bestvideo[height<=480]+bestaudio/best[height<=480]/best'
         elif self.quality == "360p":
-            ydl_format = 'bestvideo[height<=360][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=360]+bestaudio/best[height<=360]/best'
+            ydl_format = 'bestvideo[height<=360]+bestaudio/best[height<=360]/best'
         elif self.quality == "audio":
-            ydl_format = 'bestaudio[ext=m4a]/bestaudio/best'
+            ydl_format = 'bestaudio/best'
             self.category = "Music"
         else:
-            ydl_format = 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best'
+            ydl_format = 'bestvideo+bestaudio/best'
 
         ydl_opts = {
             'quiet': True,
@@ -569,6 +594,7 @@ class DownloadTask:
             'noplaylist': True,
             'format': ydl_format,
             'outtmpl': outtmpl,
+            'merge_output_format': 'mp4',
             'progress_hooks': [_yt_hook],
             'extractor_args': {
                 'youtube': {
@@ -576,6 +602,10 @@ class DownloadTask:
                 }
             }
         }
+        node_path = r'C:\Program Files\node-v26.13.0-win-x64\node.exe'
+        if os.path.exists(node_path):
+            ydl_opts['js_runtimes'] = {'node': {'path': node_path}}
+
         http_headers = {'User-Agent': self.user_agent}
         if self.cookies:
             http_headers['Cookie'] = self.cookies
@@ -587,9 +617,22 @@ class DownloadTask:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(target_url, download=True)
                 if info:
-                    real_ext = info.get('ext', 'mp4')
-                    real_filename = f"{os.path.basename(out_base)}.{real_ext}"
-                    self._set_filename(real_filename)
+                    title = info.get('title')
+                    if title:
+                        clean = "".join(c for c in title if c.isalnum() or c in " ._- ()")
+                        for ext in ["mp4", "webm", "mkv", "m4a"]:
+                            cand_base = f"{out_base}.{ext}"
+                            if os.path.exists(cand_base):
+                                target_path = os.path.join(self.output_dir, f"{clean}.{ext}")
+                                try:
+                                    if cand_base != target_path:
+                                        if os.path.exists(target_path):
+                                            os.remove(target_path)
+                                        os.rename(cand_base, target_path)
+                                except Exception:
+                                    target_path = cand_base
+                                self._set_filename(os.path.basename(target_path))
+                                break
 
             self.is_finished = True
             self.status = "Completed"
@@ -597,9 +640,9 @@ class DownloadTask:
             if os.path.exists(self.final_path):
                 self.total_size = os.path.getsize(self.final_path)
             if self.segments:
-                self.segments[0].status = "COMPLETED"
-                self.segments[0].current = self.total_size
-                self.segments[0].end = self.total_size
+                for seg in self.segments:
+                    seg.status = "COMPLETED"
+                    seg.current = seg.end
             if self.progress_callback:
                 self.progress_callback(self.get_progress())
         except Exception as e:
@@ -618,8 +661,13 @@ class DownloadTask:
 
         self.probe()
 
-        if self.is_stream_task and yt_dlp:
-            self._download_stream()
+        if self.is_stream_task:
+            if yt_dlp:
+                self._download_stream()
+            else:
+                self.status = "Error"
+                if self.progress_callback:
+                    self.progress_callback(self.get_progress())
             return
 
         self.status = "Downloading"
@@ -700,4 +748,105 @@ class DownloadTask:
     def cancel(self):
         self.is_cancelled = True
         self.status = "Cancelled"
+
+
+def extract_stream_breakdown(url: str) -> dict:
+    """Extracts all available video and audio format streams for interactive breakdown in GUI"""
+    if not yt_dlp:
+        return {"error": "yt-dlp is not installed"}
+
+    target_url = url
+    if "youtube.com" in url.lower():
+        try:
+            parsed = urllib.parse.urlparse(url)
+            qs = urllib.parse.parse_qs(parsed.query)
+            v = qs.get("v", [""])[0]
+            if v:
+                target_url = f"https://www.youtube.com/watch?v={v}"
+        except Exception:
+            pass
+
+    ydl_opts = {
+        'quiet': True,
+        'skip_download': True,
+        'no_warnings': True,
+        'noplaylist': True,
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android', 'ios', 'web']
+            }
+        }
+    }
+    node_path = r'C:\Program Files\node-v26.13.0-win-x64\node.exe'
+    if os.path.exists(node_path):
+        ydl_opts['js_runtimes'] = {'node': {'path': node_path}}
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(target_url, download=False)
+            if not info:
+                return {"error": "Failed to extract video information"}
+
+            title = info.get("title", "Video")
+            duration = info.get("duration", 0)
+            thumbnail = info.get("thumbnail", "")
+            raw_formats = info.get("formats", [])
+
+            stream_options = []
+            seen_resolutions = set()
+
+            for target_h in [1080, 720, 480, 360, 240]:
+                for f in raw_formats:
+                    h = f.get("height")
+                    if h == target_h and h not in seen_resolutions:
+                        seen_resolutions.add(h)
+                        size_mb = ""
+                        size_bytes = f.get("filesize") or f.get("filesize_approx")
+                        if size_bytes:
+                            size_mb = f"{size_bytes / (1024*1024):.1f} MB"
+                        else:
+                            tbr = f.get("tbr") or (h * 3.2)
+                            est = (tbr * 1024 / 8) * duration
+                            size_mb = f"~{est / (1024*1024):.1f} MB" if duration else "-"
+
+                        stream_options.append({
+                            "quality": f"{h}p",
+                            "label": f"{h}p ({'Full HD' if h==1080 else 'HD' if h==720 else 'Standard' if h==480 else 'Fast'})",
+                            "format_spec": f"bestvideo[height<={h}]+bestaudio/best[height<={h}]/best",
+                            "resolution": f"{f.get('width', '-')}x{h}",
+                            "ext": "mp4",
+                            "size": size_mb,
+                            "codec": str(f.get("vcodec", "avc1")).split(".")[0],
+                            "type": "Video + Audio"
+                        })
+                        break
+
+            audio_f = next((f for f in raw_formats if f.get("vcodec") == "none" and f.get("acodec") != "none"), None)
+            if audio_f:
+                a_size = ""
+                a_bytes = audio_f.get("filesize") or audio_f.get("filesize_approx")
+                if a_bytes:
+                    a_size = f"{a_bytes / (1024*1024):.1f} MB"
+                elif duration:
+                    a_size = f"~{(128 * 1024 / 8 * duration) / (1024*1024):.1f} MB"
+
+                stream_options.append({
+                    "quality": "audio",
+                    "label": "Audio Only (M4A/MP3)",
+                    "format_spec": "bestaudio/best",
+                    "resolution": "Audio",
+                    "ext": "m4a",
+                    "size": a_size or "-",
+                    "codec": str(audio_f.get("acodec", "m4a")).split(".")[0],
+                    "type": "Audio Only"
+                })
+
+            return {
+                "title": title,
+                "duration": duration,
+                "thumbnail": thumbnail,
+                "streams": stream_options
+            }
+    except Exception as e:
+        return {"error": str(e)}
 

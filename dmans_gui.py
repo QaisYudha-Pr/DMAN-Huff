@@ -18,7 +18,7 @@ from typing import Dict, Optional
 
 import version
 import updater
-from dmans_engine import DownloadTask
+from dmans_engine import DownloadTask, extract_stream_breakdown
 
 # Safe stdout/stderr for windowed mode
 if sys.stdout is None:
@@ -912,6 +912,100 @@ class AddBatchDialog(tk.Toplevel):
         self.destroy()
 
 
+class VideoStreamBreakdownDialog(tk.Toplevel):
+    def __init__(self, parent, url: str, on_select_format):
+        super().__init__(parent)
+        self.title("Video Stream Breakdown - Dmans")
+        sw = self.winfo_screenwidth()
+        sh = self.winfo_screenheight()
+        w, h = 660, 420
+        x = max(0, (sw - w) // 2)
+        y = max(0, (sh - h) // 2)
+        self.geometry(f"{w}x{h}+{x}+{y}")
+        self.transient(parent)
+        force_bring_to_front(self)
+        self.grab_set()
+
+        self.url = url
+        self.on_select = on_select_format
+        self.streams_data = []
+
+        self._build_ui()
+        threading.Thread(target=self._fetch_breakdown, daemon=True).start()
+
+    def _build_ui(self):
+        f = ttk.Frame(self, padding=12)
+        f.pack(fill=tk.BOTH, expand=True)
+
+        self.lbl_title = ttk.Label(f, text="🔍 Analyzing available video & audio streams with yt-dlp...", font=("Segoe UI", 10, "bold"), wraplength=620)
+        self.lbl_title.pack(anchor=tk.W, pady=(0, 8))
+
+        cols = ("Quality", "Type", "Resolution", "Ext", "Size", "Codec")
+        self.tree = ttk.Treeview(f, columns=cols, show="headings", height=8, selectmode="browse")
+        self.tree.heading("Quality", text="Quality")
+        self.tree.heading("Type", text="Stream Type")
+        self.tree.heading("Resolution", text="Resolution")
+        self.tree.heading("Ext", text="Format")
+        self.tree.heading("Size", text="Est. Size")
+        self.tree.heading("Codec", text="Codec")
+
+        self.tree.column("Quality", width=140)
+        self.tree.column("Type", width=100)
+        self.tree.column("Resolution", width=90)
+        self.tree.column("Ext", width=60)
+        self.tree.column("Size", width=80)
+        self.tree.column("Codec", width=70)
+
+        self.tree.pack(fill=tk.BOTH, expand=True, pady=6)
+        self.tree.bind("<Double-1>", lambda _: self._confirm())
+
+        btn_box = ttk.Frame(self, padding=10)
+        btn_box.pack(fill=tk.X)
+
+        self.btn_dl = ttk.Button(btn_box, text="⬇️ Select This Stream", command=self._confirm, state=tk.DISABLED)
+        self.btn_dl.pack(side=tk.RIGHT, padx=6)
+        ttk.Button(btn_box, text="Cancel", command=self.destroy).pack(side=tk.RIGHT, padx=6)
+
+    def _fetch_breakdown(self):
+        res = extract_stream_breakdown(self.url)
+        self.after(0, self._apply_breakdown, res)
+
+    def _apply_breakdown(self, data: dict):
+        if "error" in data:
+            self.lbl_title.config(text=f"⚠️ {data['error']}", foreground="#cc0000")
+            return
+
+        title = data.get("title", "Video Stream")
+        duration = data.get("duration", 0)
+        dur_str = f" ({duration//60}:{duration%60:02d})" if duration else ""
+        self.lbl_title.config(text=f"🎬 {title}{dur_str}", foreground="#000000")
+
+        self.streams_data = data.get("streams", [])
+        for s in self.streams_data:
+            self.tree.insert("", tk.END, iid=s["quality"], values=(
+                s["label"],
+                s["type"],
+                s["resolution"],
+                s["ext"].upper(),
+                s["size"],
+                s["codec"]
+            ))
+
+        if self.streams_data:
+            self.tree.selection_set(self.streams_data[0]["quality"])
+            self.btn_dl.config(state=tk.NORMAL)
+
+    def _confirm(self):
+        sel = self.tree.selection()
+        if not sel:
+            return
+        chosen_q = sel[0]
+        chosen_stream = next((s for s in self.streams_data if s["quality"] == chosen_q), None)
+        if chosen_stream and self.on_select:
+            self.on_select(chosen_stream)
+        self.destroy()
+
+
 class AddDownloadDialog(tk.Toplevel):
     def __init__(self, parent, initial_url: str = "", filename: str = "", cookies: str = "", referer: str = "", user_agent: str = "", start_now: bool = False, quality: str = "best"):
         super().__init__(parent)
@@ -1017,6 +1111,7 @@ class AddDownloadDialog(tk.Toplevel):
             state="readonly"
         )
         qual_cb.grid(row=5, column=1, sticky=tk.W, **pad)
+        ttk.Button(f, text="🔍 Breakdown...", command=self._open_breakdown).grid(row=5, column=2, **pad)
 
         f.columnconfigure(1, weight=1)
 
@@ -1025,6 +1120,18 @@ class AddDownloadDialog(tk.Toplevel):
         ttk.Button(btn_box, text="Download Later", command=lambda: self._done(False)).pack(side=tk.LEFT, padx=6)
         ttk.Button(btn_box, text="Cancel", command=self.destroy).pack(side=tk.RIGHT, padx=6)
         ttk.Button(btn_box, text="OK / Download Now", command=lambda: self._done(True)).pack(side=tk.RIGHT, padx=6)
+
+    def _open_breakdown(self):
+        url = self.url_var.get().strip()
+        if not url:
+            messagebox.showwarning("URL Missing", "Please enter a valid video URL first!")
+            return
+        def _on_format_selected(stream_info):
+            self.quality_var.set(stream_info["label"])
+            if stream_info.get("ext"):
+                base = os.path.splitext(self.file_var.get())[0] or "video"
+                self.file_var.set(f"{base}.{stream_info['ext']}")
+        VideoStreamBreakdownDialog(self, url, _on_format_selected)
 
     def _browse(self):
         d = filedialog.askdirectory(initialdir=self.dir_var.get())
