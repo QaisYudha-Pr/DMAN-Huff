@@ -76,19 +76,23 @@ class DmansApiHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == "/ping":
+            resp = b'{"status": "ok", "app": "Dmans"}'
             self.send_response(200)
             self._send_cors()
             self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(resp)))
             self.end_headers()
-            self.wfile.write(b'{"status": "ok", "app": "Dmans"}')
+            self.wfile.write(resp)
         elif self.path == "/show":
             if DmansApiHandler.app_ref:
                 DmansApiHandler.app_ref.after(0, DmansApiHandler.app_ref.show_window)
+            resp = b'{"status": "shown"}'
             self.send_response(200)
             self._send_cors()
             self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(resp)))
             self.end_headers()
-            self.wfile.write(b'{"status": "shown"}')
+            self.wfile.write(resp)
         else:
             self.send_response(404)
             self.end_headers()
@@ -101,11 +105,13 @@ class DmansApiHandler(BaseHTTPRequestHandler):
                 data = json.loads(body)
                 if DmansApiHandler.app_ref:
                     DmansApiHandler.app_ref.after(0, DmansApiHandler.app_ref.handle_browser_add, data)
+                resp = b'{"status": "received"}'
                 self.send_response(200)
                 self._send_cors()
                 self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(resp)))
                 self.end_headers()
-                self.wfile.write(b'{"status": "received"}')
+                self.wfile.write(resp)
             except Exception:
                 self.send_response(400)
                 self.end_headers()
@@ -1124,41 +1130,7 @@ class DownloadCompleteDialog(tk.Toplevel):
         self.destroy()
 
 
-def check_single_instance():
-    try:
-        import ctypes
-        kernel32 = ctypes.windll.kernel32
-        mutex_name = "Global\\Dmans_App_Instance_Mutex_2026"
-        mutex = kernel32.CreateMutexW(None, False, mutex_name)
-        if kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
-            try:
-                if len(sys.argv) > 1:
-                    raw_url = sys.argv[1].strip()
-                    if raw_url.startswith("dmans://"):
-                        raw_url = raw_url[len("dmans://"):]
-                    if raw_url.startswith("http://") or raw_url.startswith("https://"):
-                        add_req = urllib.request.Request(
-                            "http://127.0.0.1:18888/add",
-                            data=json.dumps({"url": raw_url, "start_now": True}).encode("utf-8"),
-                            headers={"Content-Type": "application/json"}
-                        )
-                        urllib.request.urlopen(add_req, timeout=1.5)
-                else:
-                    show_req = urllib.request.Request("http://127.0.0.1:18888/show")
-                    urllib.request.urlopen(show_req, timeout=1.5)
-            except Exception:
-                pass
-            return False, None
-        return True, mutex
-    except Exception:
-        return True, None
-
-
 if __name__ == "__main__":
-    is_primary, _mutex = check_single_instance()
-    if not is_primary:
-        sys.exit(0)
-
     try:
         app = DmansApp()
         app.mainloop()
