@@ -62,7 +62,7 @@
       }
     }
 
-    if (!url) {
+    if (!url || url.startsWith("blob:")) {
       url = window.location.href;
     }
 
@@ -149,7 +149,7 @@
 
         // Build stream URL
         let streamUrl = "";
-        if (window.location.hostname.includes("youtube.com")) {
+        if (window.location.hostname.includes("youtube.com") || window.location.hostname.includes("youtu.be")) {
           streamUrl = window.location.href;
         } else {
           streamUrl = media.currentSrc || media.src;
@@ -157,7 +157,9 @@
             const source = media.querySelector("source");
             if (source) streamUrl = source.src;
           }
-          if (!streamUrl) streamUrl = window.location.href;
+          if (!streamUrl || streamUrl.startsWith("blob:")) {
+            streamUrl = window.location.href;
+          }
         }
 
         // Show IDM-Style Quality Menu

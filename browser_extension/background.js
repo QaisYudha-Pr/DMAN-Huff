@@ -111,7 +111,7 @@ function resolveBestDownloadUrl(info, tab) {
   }
 
   // Priority 2: Direct media under cursor (Image, Audio, Video source)
-  if (info && info.srcUrl) {
+  if (info && info.srcUrl && !info.srcUrl.startsWith("blob:")) {
     return info.srcUrl;
   }
 

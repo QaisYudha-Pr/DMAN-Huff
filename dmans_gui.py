@@ -49,11 +49,35 @@ def force_bring_to_front(win):
         win.attributes("-topmost", True)
         win.focus_force()
         import ctypes
-        hwnd = win.winfo_id()
-        ctypes.windll.user32.ShowWindow(hwnd, 9)  # SW_RESTORE
-        ctypes.windll.user32.SetForegroundWindow(hwnd)
-        ctypes.windll.user32.BringWindowToTop(hwnd)
-        win.after(500, lambda: win.attributes("-topmost", False))
+        user32 = ctypes.windll.user32
+        child_hwnd = win.winfo_id()
+        hwnd = user32.GetParent(child_hwnd)
+        if not hwnd:
+            try:
+                hwnd = int(win.wm_frame(), 16)
+            except Exception:
+                hwnd = child_hwnd
+
+        fore_hwnd = user32.GetForegroundWindow()
+        if fore_hwnd:
+            fore_thread = user32.GetWindowThreadProcessId(fore_hwnd, None)
+            curr_thread = ctypes.windll.kernel32.GetCurrentThreadId()
+            if fore_thread != curr_thread:
+                user32.AttachThreadInput(curr_thread, fore_thread, True)
+                user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+                user32.SetForegroundWindow(hwnd)
+                user32.BringWindowToTop(hwnd)
+                user32.AttachThreadInput(curr_thread, fore_thread, False)
+            else:
+                user32.ShowWindow(hwnd, 9)
+                user32.SetForegroundWindow(hwnd)
+                user32.BringWindowToTop(hwnd)
+        else:
+            user32.ShowWindow(hwnd, 9)
+            user32.SetForegroundWindow(hwnd)
+            user32.BringWindowToTop(hwnd)
+
+        win.after(1500, lambda: win.attributes("-topmost", False))
     except Exception:
         pass
 
@@ -197,23 +221,65 @@ class DmansApp(tk.Tk):
         cookies = data.get("cookies", "")
         referer = data.get("referer", "")
         user_agent = data.get("user_agent", "")
-        start_now = data.get("start_now", False)
+        start_now = data.get("start_now", True)
         quality = data.get("quality", "best")
+
         if winsound:
             try:
                 winsound.MessageBeep(winsound.MB_ICONASTERISK)
             except Exception:
                 pass
+
+        self.deiconify()
+        self.lift()
         force_bring_to_front(self)
-        self.show_add_download_dialog(
-            initial_url=url,
-            filename=filename,
-            cookies=cookies,
-            referer=referer,
-            user_agent=user_agent,
-            start_now=start_now,
-            quality=quality
-        )
+
+        default_dir = os.path.join(os.path.expanduser("~"), "Downloads")
+        if not os.path.exists(default_dir):
+            default_dir = os.path.abspath(".")
+
+        if not filename:
+            try:
+                parsed = urllib.parse.urlparse(url)
+                name = os.path.basename(parsed.path)
+                filename = urllib.parse.unquote(name) if name else ""
+            except Exception:
+                filename = ""
+            if not filename:
+                filename = "download"
+
+        if start_now:
+            # Check if this exact URL is already actively downloading
+            existing_task = self.downloads.get(url)
+            if existing_task and existing_task.status in ["Downloading", "Finalizing"]:
+                self._open_detail_window(existing_task)
+                return
+
+            cfg = {
+                "url": url,
+                "filename": filename,
+                "output_dir": default_dir,
+                "connections": 8,
+                "max_speed_kb": None,
+                "cookies": cookies,
+                "referer": referer,
+                "user_agent": user_agent,
+                "quality": quality,
+                "start_now": True
+            }
+            # Remove any stale record of this URL so it cleanly starts
+            self.db_records = [r for r in self.db_records if r["url"] != url]
+            self._add_task(cfg)
+        else:
+            self.show_add_download_dialog(
+                initial_url=url,
+                filename=filename,
+                cookies=cookies,
+                referer=referer,
+                user_agent=user_agent,
+                start_now=start_now,
+                quality=quality
+            )
 
     def show_window(self):
         self.deiconify()
@@ -496,10 +562,15 @@ class DmansApp(tk.Tk):
 
     def _add_task(self, cfg: dict):
         url = cfg["url"]
-        for rec in self.db_records:
+        for rec in list(self.db_records):
             if rec["url"] == url:
-                messagebox.showwarning("Duplicate", "This URL is already in your download list!")
-                return
+                if rec.get("status") in ["Downloading", "Finalizing"]:
+                    task = self.downloads.get(url)
+                    if task:
+                        self._open_detail_window(task)
+                    return
+                self.db_records.remove(rec)
+                break
 
         rec = {
             "url": url,
@@ -666,9 +737,11 @@ class DmansApp(tk.Tk):
         url = task.url
         if url in self.detail_windows and self.detail_windows[url].winfo_exists():
             self.detail_windows[url].lift()
+            force_bring_to_front(self.detail_windows[url])
             return
         win = DownloadDetailDialog(self, task)
         self.detail_windows[url] = win
+        force_bring_to_front(win)
 
     def open_selected_file(self):
         selected = self.tree.selection()
@@ -843,7 +916,12 @@ class AddDownloadDialog(tk.Toplevel):
     def __init__(self, parent, initial_url: str = "", filename: str = "", cookies: str = "", referer: str = "", user_agent: str = "", start_now: bool = False, quality: str = "best"):
         super().__init__(parent)
         self.title("Enter URL to Download - Dmans")
-        self.geometry("560x340")
+        sw = self.winfo_screenwidth()
+        sh = self.winfo_screenheight()
+        w, h = 560, 360
+        x = max(0, (sw - w) // 2)
+        y = max(0, (sh - h) // 2)
+        self.geometry(f"{w}x{h}+{x}+{y}")
         self.resizable(False, False)
         self.transient(parent)
         force_bring_to_front(self)
@@ -991,8 +1069,14 @@ class DownloadDetailDialog(tk.Toplevel):
         super().__init__(parent)
         self.task = task
         self.title(f"{task.filename} - Dmans")
-        self.geometry("640x480")
+        sw = self.winfo_screenwidth()
+        sh = self.winfo_screenheight()
+        w, h = 640, 480
+        x = max(0, (sw - w) // 2)
+        y = max(0, (sh - h) // 2)
+        self.geometry(f"{w}x{h}+{x}+{y}")
         self.minsize(580, 420)
+        force_bring_to_front(self)
 
         self._build_ui()
 
