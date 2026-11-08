@@ -4,34 +4,19 @@ const DMANS_API = "http://127.0.0.1:18888";
 let lastRightClickUrl = "";
 
 // 1. Guaranteed Context Menu Registration
-function initContextMenus() {
-  try {
-    chrome.contextMenus.removeAll(() => {
-      chrome.contextMenus.create({
-        id: "dmans_universal_download",
-        title: "⚡ Download with Dmans",
-        contexts: ["all"]
-      }, () => {
-        if (chrome.runtime.lastError) {
-          // Benign error if re-registered
-        }
-      });
-    });
-  } catch (e) {
-    console.warn("[Dmans] Context menu init error:", e);
-  }
-}
-
 chrome.runtime.onInstalled.addListener(() => {
-  initContextMenus();
+  chrome.contextMenus.removeAll(() => {
+    chrome.contextMenus.create({
+      id: "dmans_universal_download",
+      title: "⚡ Download with Dmans",
+      contexts: ["all"]
+    }, () => {
+      if (chrome.runtime.lastError) {
+        // Benign error if re-registered
+      }
+    });
+  });
 });
-
-chrome.runtime.onStartup.addListener(() => {
-  initContextMenus();
-});
-
-// Run immediately on service worker start
-initContextMenus();
 
 // 2. Notification Helper
 function notifyUser(title, message) {
