@@ -84,35 +84,6 @@
     2. Tombol download otomatis muncul di atas video web!
   </div>
 
-  <script>
-    const dot = document.getElementById('dot');
-    const statusText = document.getElementById('status-text');
-    const toggle = document.getElementById('intercept-toggle');
-    const linksToggle = document.getElementById('links-toggle');
-
-    fetch('http://127.0.0.1:18888/ping')
-      .then(r => r.json())
-      .then(d => {
-        dot.className = 'dot online';
-        statusText.textContent = 'Dmans Engine: Connected';
-      })
-      .catch(() => {
-        dot.className = 'dot offline';
-        statusText.textContent = 'Dmans Engine: Offline (Open Dmans)';
-      });
-
-    chrome.storage.local.get(['autoIntercept', 'interceptLinks'], res => {
-      toggle.checked = res.autoIntercept !== false;
-      linksToggle.checked = res.interceptLinks !== false;
-    });
-
-    toggle.addEventListener('change', () => {
-      chrome.storage.local.set({ autoIntercept: toggle.checked });
-    });
-
-    linksToggle.addEventListener('change', () => {
-      chrome.storage.local.set({ interceptLinks: linksToggle.checked });
-    });
-  </script>
+  <script src="popup.js"></script>
 </body>
 </html>

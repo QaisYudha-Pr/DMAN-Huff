@@ -11,6 +11,7 @@
 
   let lastTargetUrl = "";
 
+  // 1. Right-click helper: captures target link/media url
   document.addEventListener("contextmenu", (e) => {
     let el = e.target;
     let url = "";
@@ -36,9 +37,12 @@
     }
 
     lastTargetUrl = url;
-    chrome.runtime.sendMessage({ type: "UPDATE_LAST_RIGHTCLICK_URL", url: url });
+    try {
+      chrome.runtime.sendMessage({ type: "UPDATE_LAST_RIGHTCLICK_URL", url: url });
+    } catch (err) {}
   }, true);
 
+  // 2. Intercept direct file links
   document.addEventListener("click", (e) => {
     let link = e.target.closest("a");
     if (!link || !link.href) return;
@@ -47,19 +51,22 @@
     let isDownloadable = DOWNLOAD_EXTS.some((ext) => href.endsWith(ext));
 
     if (isDownloadable) {
-      chrome.storage.local.get(["interceptLinks"], (res) => {
-        if (res.interceptLinks !== false) {
-          e.preventDefault();
-          e.stopPropagation();
-          chrome.runtime.sendMessage({
-            type: "DOWNLOAD_URL",
-            url: link.href
-          });
-        }
-      });
+      try {
+        chrome.runtime.sendMessage({
+          type: "INTERCEPT_LINK_CLICK",
+          url: link.href
+        }, (res) => {
+          if (chrome.runtime.lastError) return;
+          if (res && res.handled) {
+            e.preventDefault();
+            e.stopPropagation();
+          }
+        });
+      } catch (err) {}
     }
   }, true);
 
+  // 3. IDM-style Floating Video & Audio Download Bar
   function attachVideoButtons() {
     const mediaElements = document.querySelectorAll("video, audio");
     mediaElements.forEach((media) => {
@@ -84,6 +91,7 @@
       bar.addEventListener("click", (e) => {
         e.preventDefault();
         e.stopPropagation();
+
         let streamUrl = media.currentSrc || media.src;
         if (!streamUrl) {
           const source = media.querySelector("source");
@@ -91,10 +99,12 @@
         }
         if (!streamUrl) streamUrl = window.location.href;
 
-        chrome.runtime.sendMessage({
-          type: "DOWNLOAD_URL",
-          url: streamUrl
-        });
+        try {
+          chrome.runtime.sendMessage({
+            type: "DOWNLOAD_URL",
+            url: streamUrl
+          });
+        } catch (err) {}
 
         bar.innerHTML = `<span>✓ Sent to Dmans</span>`;
         setTimeout(() => {
