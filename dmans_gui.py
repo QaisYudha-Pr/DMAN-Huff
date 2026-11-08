@@ -20,6 +20,18 @@ import version
 import updater
 from dmans_engine import DownloadTask
 
+# Safe stdout/stderr for windowed mode
+if sys.stdout is None:
+    class DummyStream:
+        def write(self, s): pass
+        def flush(self): pass
+    sys.stdout = DummyStream()
+if sys.stderr is None:
+    class DummyStream:
+        def write(self, s): pass
+        def flush(self): pass
+    sys.stderr = DummyStream()
+
 try:
     import winsound
 except ImportError:
@@ -995,6 +1007,21 @@ class DownloadCompleteDialog(tk.Toplevel):
 
 
 if __name__ == "__main__":
-    app = DmansApp()
-    app.mainloop()
+    try:
+        app = DmansApp()
+        app.mainloop()
+    except Exception as e:
+        import traceback
+        tb = traceback.format_exc()
+        try:
+            log_dir = get_app_dir()
+            with open(os.path.join(log_dir, "dmans_crash.log"), "w", encoding="utf-8") as f:
+                f.write(tb)
+        except Exception:
+            pass
+        try:
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(0, f"Error starting Dmans:\n{tb}", "Dmans Startup Error", 0x10)
+        except Exception:
+            pass
 
