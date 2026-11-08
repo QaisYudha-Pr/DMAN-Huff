@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body {
+      width: 250px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      padding: 14px;
+      margin: 0;
+      background: #f8fafc;
+      color: #1e293b;
+    }
+    h2 {
+      margin: 0 0 8px 0;
+      font-size: 15px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: #0f172a;
+    }
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 12px;
+      padding: 4px 8px;
+      border-radius: 12px;
+      background: #e2e8f0;
+      margin-bottom: 12px;
+    }
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #94a3b8;
+    }
+    .dot.online { background: #22c55e; }
+    .dot.offline { background: #ef4444; }
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 13px;
+      padding: 8px 0;
+      border-top: 1px solid #e2e8f0;
+    }
+    .help-text {
+      font-size: 11px;
+      color: #64748b;
+      margin-top: 10px;
+      line-height: 1.4;
+    }
+  </style>
+</head>
+<body>
+  <h2>⚡ PyIDM Integration</h2>
+  <div class="status-badge">
+    <div id="dot" class="dot"></div>
+    <span id="status-text">Checking PyIDM...</span>
+  </div>
+
+  <div class="toggle-row">
+    <span>Auto-catch downloads:</span>
+    <input type="checkbox" id="intercept-toggle">
+  </div>
+
+  <div class="help-text">
+    Right-click any download link or video and select <b>"Download with PyIDM"</b> to download at maximum speed.
+  </div>
+
+  <script>
+    const dot = document.getElementById('dot');
+    const statusText = document.getElementById('status-text');
+    const toggle = document.getElementById('intercept-toggle');
+
+    // Check backend status
+    fetch('http://127.0.0.1:18888/ping')
+      .then(r => r.json())
+      .then(d => {
+        dot.className = 'dot online';
+        statusText.textContent = 'PyIDM Engine: Connected';
+      })
+      .catch(() => {
+        dot.className = 'dot offline';
+        statusText.textContent = 'PyIDM Engine: Offline';
+      });
+
+    // Load settings
+    chrome.storage.local.get(['autoIntercept'], res => {
+      toggle.checked = !!res.autoIntercept;
+    });
+
+    toggle.addEventListener('change', () => {
+      chrome.storage.local.set({ autoIntercept: toggle.checked });
+    });
+  </script>
+</body>
+</html>
+
