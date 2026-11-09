@@ -13,6 +13,26 @@ import urllib.parse
 import threading
 from typing import Dict, List, Optional, Callable
 
+# Bulletproof stdout/stderr wrapper for windowed mode
+class SafeStream:
+    def __init__(self, target=None):
+        self.target = target
+    def write(self, s):
+        try:
+            if self.target and hasattr(self.target, "write"):
+                self.target.write(s)
+        except Exception:
+            pass
+    def flush(self):
+        try:
+            if self.target and hasattr(self.target, "flush"):
+                self.target.flush()
+        except Exception:
+            pass
+
+sys.stdout = SafeStream(sys.stdout)
+sys.stderr = SafeStream(sys.stderr)
+
 try:
     import yt_dlp
 except ImportError:
@@ -114,11 +134,15 @@ class DownloadTask:
         referer: str = "",
         user_agent: Optional[str] = None,
         quality: str = "best",
-        format_spec: str = ""
+        format_spec: str = "",
+        auto_categorize: bool = False,
+        base_download_dir: Optional[str] = None
     ):
         self.original_url = url
         self.url = url
         self.output_dir = os.path.abspath(output_dir)
+        self.auto_categorize = auto_categorize
+        self.base_download_dir = os.path.abspath(base_download_dir) if base_download_dir else self.output_dir
         self.num_connections = max(1, min(num_connections, 32))
         self.chunk_size = chunk_size
         self.max_speed_kb = max_speed_kb
@@ -158,7 +182,11 @@ class DownloadTask:
     def _set_filename(self, name: str):
         if not name:
             return
-        self.filename = name
+        import re
+        clean_name = re.sub(r'[\\/*?:"<>|]', '_', name).strip()
+        if not clean_name:
+            clean_name = "download"
+        self.filename = clean_name
         self.final_path = os.path.join(self.output_dir, self.filename)
         self.part_path = self.final_path + ".dmpart"
         self.meta_path = self.final_path + ".dmmeta"
@@ -244,7 +272,15 @@ class DownloadTask:
             self.supports_range = True
 
         cd = headers.get("content-disposition", "")
-        if cd and (not self.filename or self.filename.endswith(".bin")):
+        cur_ext = os.path.splitext(self.filename)[1].lower()
+        is_generic_name = (
+            not self.filename
+            or not cur_ext
+            or self.filename.lower() in ["download", "watch", "file", "index.html", "uc", "get"]
+            or cur_ext in [".bin", ".htm", ".html"]
+            or self.filename.startswith("download_")
+        )
+        if cd and (is_generic_name or "attachment" in cd.lower() or "filename" in cd.lower()):
             import re
             m_utf = re.search(r"filename\*\s*=\s*(?:UTF-8''|utf-8'')([^;]+)", cd, re.IGNORECASE)
             if m_utf:
@@ -257,9 +293,9 @@ class DownloadTask:
                     self._set_filename(fname)
 
         ct = headers.get("content-type", "").lower()
-        # If filename has no extension or is generic .bin, infer accurate extension from Content-Type
+        # If filename has no extension or is generic .bin/.htm, infer accurate extension from Content-Type
         cur_ext = os.path.splitext(self.filename)[1].lower()
-        if not cur_ext or cur_ext == ".bin":
+        if not cur_ext or cur_ext in [".bin", ".htm", ".html"]:
             base = os.path.splitext(self.filename)[0] or "download"
             if "image/jpeg" in ct:
                 self._set_filename(f"{base}.jpg")
@@ -274,12 +310,38 @@ class DownloadTask:
                 self._set_filename(f"{base}.{sub}")
             elif "video/mp4" in ct:
                 self._set_filename(f"{base}.mp4")
+            elif "video/webm" in ct:
+                self._set_filename(f"{base}.webm")
+            elif "video/x-matroska" in ct:
+                self._set_filename(f"{base}.mkv")
+            elif "video/" in ct:
+                sub = ct.split("video/")[1].split(";")[0].strip()
+                self._set_filename(f"{base}.{sub}")
+            elif "audio/mpeg" in ct or "audio/mp3" in ct:
+                self._set_filename(f"{base}.mp3")
+            elif "audio/mp4" in ct or "audio/m4a" in ct:
+                self._set_filename(f"{base}.m4a")
+            elif "audio/" in ct:
+                sub = ct.split("audio/")[1].split(";")[0].strip()
+                self._set_filename(f"{base}.{sub}")
             elif "application/pdf" in ct:
                 self._set_filename(f"{base}.pdf")
-            elif "application/zip" in ct or "compressed" in ct:
+            elif "application/zip" in ct:
+                self._set_filename(f"{base}.zip")
+            elif "application/x-rar" in ct or "application/vnd.rar" in ct:
+                self._set_filename(f"{base}.rar")
+            elif "application/x-7z-compressed" in ct:
+                self._set_filename(f"{base}.7z")
+            elif "compressed" in ct:
                 self._set_filename(f"{base}.zip")
 
+        old_cat = self.category
         self.category = self._detect_category(self.filename, ct)
+        if getattr(self, "auto_categorize", False) and self.category != old_cat:
+            new_target_dir = resolve_category_path(getattr(self, "base_download_dir", self.output_dir), self.category, True)
+            if new_target_dir != self.output_dir:
+                self.output_dir = new_target_dir
+                self._set_filename(self.filename)
 
     def probe(self):
         """Detect file length and Range support via HTTP HEAD or GET"""
@@ -475,30 +537,47 @@ class DownloadTask:
                 time.sleep(1)
 
     def _single_stream_worker(self, file_handle):
-        req = urllib.request.Request(self.url, headers={
-            "User-Agent": DEFAULT_USER_AGENT,
+        headers = {
+            "User-Agent": self.user_agent,
             "Connection": "keep-alive"
-        })
-        with urllib.request.urlopen(req, timeout=20) as resp:
-            while not self.is_paused and not self.is_cancelled:
-                t0 = time.time()
-                chunk = resp.read(self.chunk_size)
-                if not chunk:
-                    break
-                with self.file_lock:
-                    file_handle.write(chunk)
-                    if self.segments:
-                        self.segments[0].current += len(chunk)
+        }
+        if self.cookies:
+            headers["Cookie"] = self.cookies
+        if self.referer:
+            headers["Referer"] = self.referer
+        req = urllib.request.Request(self.url, headers=headers)
+        try:
+            with urllib.request.urlopen(req, timeout=25) as resp:
+                headers_dict = {k.lower(): v for k, v in resp.headers.items()}
+                self._parse_headers_for_metadata(headers_dict)
+                while not self.is_paused and not self.is_cancelled:
+                    t0 = time.time()
+                    chunk = resp.read(self.chunk_size)
+                    if not chunk:
+                        break
+                    with self.file_lock:
+                        file_handle.write(chunk)
+                        if self.segments:
+                            self.segments[0].current += len(chunk)
+                            if self.total_size <= 0:
+                                self.segments[0].end = self.segments[0].current
 
-                if self.max_speed_kb and self.max_speed_kb > 0:
-                    target_bps = self.max_speed_kb * 1024
-                    expected_time = len(chunk) / target_bps
-                    elapsed = time.time() - t0
-                    if elapsed < expected_time:
-                        time.sleep(expected_time - elapsed)
+                    if self.max_speed_kb and self.max_speed_kb > 0:
+                        target_bps = self.max_speed_kb * 1024
+                        expected_time = len(chunk) / target_bps
+                        elapsed = time.time() - t0
+                        if elapsed < expected_time:
+                            time.sleep(expected_time - elapsed)
 
+                if self.segments and not self.is_paused and not self.is_cancelled:
+                    self.segments[0].status = "COMPLETED"
+                    if self.total_size <= 0:
+                        self.total_size = self.segments[0].current
+                        self.segments[0].end = max(0, self.segments[0].current - 1)
+        except Exception as e:
+            print(f"[!] Single stream worker error: {e}")
             if self.segments:
-                self.segments[0].status = "COMPLETED"
+                self.segments[0].status = "FAILED"
 
     def get_progress(self) -> dict:
         total_downloaded = sum(seg.downloaded_bytes for seg in self.segments)
@@ -508,6 +587,7 @@ class DownloadTask:
             "filename": self.filename,
             "url": self.url,
             "category": self.category,
+            "output_dir": self.output_dir,
             "status": self.status,
             "added_time": self.added_time,
             "total_size": self.total_size,
@@ -748,9 +828,20 @@ class DownloadTask:
             self.status = "Cancelled"
             self.current_speed = 0.0
             if os.path.exists(self.part_path):
-                os.remove(self.part_path)
+                try:
+                    os.remove(self.part_path)
+                except Exception:
+                    pass
             if os.path.exists(self.meta_path):
-                os.remove(self.meta_path)
+                try:
+                    os.remove(self.meta_path)
+                except Exception:
+                    pass
+            if self.progress_callback:
+                self.progress_callback(self.get_progress())
+        else:
+            self.status = "Error"
+            self.current_speed = 0.0
             if self.progress_callback:
                 self.progress_callback(self.get_progress())
 

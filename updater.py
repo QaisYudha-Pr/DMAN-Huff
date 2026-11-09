@@ -37,6 +37,7 @@ def load_config() -> dict:
         "last_update_check": 0,
         "download_dir": get_default_download_dir(),
         "auto_categorize": True,
+        "show_download_dialog": True,
         "max_concurrent_downloads": 2,
         "default_connections": 8
     }

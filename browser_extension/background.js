@@ -22,14 +22,31 @@ function safeGetSetting(key, defaultValue, callback) {
   callback(defaultValue);
 }
 
-// 2. Cookie Extractor (Authentic IDM session passing)
+// 2. Cookie Extractor (Authentic IDM session passing with multi-domain resolution)
 async function getCookiesForUrl(targetUrl) {
   try {
     if (typeof chrome !== "undefined" && chrome && chrome.cookies) {
-      const parsed = new URL(targetUrl);
-      const cookies = await chrome.cookies.getAll({ domain: parsed.hostname });
+      // 1. First try matching by exact URL (retrieves all matching path and parent-domain cookies)
+      let cookies = await chrome.cookies.getAll({ url: targetUrl });
       if (cookies && cookies.length > 0) {
         return cookies.map(c => `${c.name}=${c.value}`).join("; ");
+      }
+
+      const parsed = new URL(targetUrl);
+      // 2. Try exact hostname
+      cookies = await chrome.cookies.getAll({ domain: parsed.hostname });
+      if (cookies && cookies.length > 0) {
+        return cookies.map(c => `${c.name}=${c.value}`).join("; ");
+      }
+
+      // 3. Try parent/root domain (e.g. drive.google.com -> google.com)
+      const parts = parsed.hostname.split(".");
+      if (parts.length >= 2) {
+        const rootDomain = parts.slice(-2).join(".");
+        cookies = await chrome.cookies.getAll({ domain: rootDomain });
+        if (cookies && cookies.length > 0) {
+          return cookies.map(c => `${c.name}=${c.value}`).join("; ");
+        }
       }
     }
   } catch (e) {}

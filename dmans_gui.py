@@ -38,17 +38,25 @@ CAT_ICON_MAP = {
     "General": "🗂️ General",
 }
 
-# Safe stdout/stderr for windowed mode
-if sys.stdout is None:
-    class DummyStream:
-        def write(self, s): pass
-        def flush(self): pass
-    sys.stdout = DummyStream()
-if sys.stderr is None:
-    class DummyStream:
-        def write(self, s): pass
-        def flush(self): pass
-    sys.stderr = DummyStream()
+# Bulletproof stdout/stderr wrapper for PyInstaller windowed mode (prevents [WinError 6] The handle is invalid)
+class SafeStream:
+    def __init__(self, target=None):
+        self.target = target
+    def write(self, s):
+        try:
+            if self.target and hasattr(self.target, "write"):
+                self.target.write(s)
+        except Exception:
+            pass
+    def flush(self):
+        try:
+            if self.target and hasattr(self.target, "flush"):
+                self.target.flush()
+        except Exception:
+            pass
+
+sys.stdout = SafeStream(sys.stdout)
+sys.stderr = SafeStream(sys.stderr)
 
 try:
     import winsound
@@ -272,13 +280,25 @@ class DmansApp(tk.Tk):
             if not filename:
                 filename = "download"
 
-        if start_now:
-            # Check if this exact URL is already actively downloading
-            existing_task = self.downloads.get(url)
-            if existing_task and existing_task.status in ["Downloading", "Finalizing"]:
-                self._open_detail_window(existing_task)
-                return
+        show_dialog = app_cfg.get("show_download_dialog", True)
 
+        # Check if this exact URL is already actively downloading
+        existing_task = self.downloads.get(url)
+        if existing_task and existing_task.status in ["Downloading", "Finalizing"]:
+            self._open_detail_window(existing_task)
+            return
+
+        if show_dialog:
+            self.show_add_download_dialog(
+                initial_url=url,
+                filename=filename,
+                cookies=cookies,
+                referer=referer,
+                user_agent=user_agent,
+                start_now=True,
+                quality=quality
+            )
+        else:
             cfg = {
                 "url": url,
                 "filename": filename,
@@ -295,16 +315,6 @@ class DmansApp(tk.Tk):
             # Remove any stale record of this URL so it cleanly starts
             self.db_records = [r for r in self.db_records if r["url"] != url]
             self._add_task(cfg)
-        else:
-            self.show_add_download_dialog(
-                initial_url=url,
-                filename=filename,
-                cookies=cookies,
-                referer=referer,
-                user_agent=user_agent,
-                start_now=start_now,
-                quality=quality
-            )
 
     def show_window(self):
         self.deiconify()
@@ -751,15 +761,34 @@ class DmansApp(tk.Tk):
             "category": cat,
             "added_time": time.strftime("%Y-%m-%d %H:%M")
         }
+        # Ensure sidebar resets to All Downloads so newly added downloads are never hidden
+        self.selected_category = "All Downloads"
+        if hasattr(self, "cat_nodes") and "All Downloads" in self.cat_nodes:
+            try:
+                self.cat_tree.selection_set(self.cat_nodes["All Downloads"])
+            except Exception:
+                pass
+
         self.db_records.insert(0, rec)
         self._save_db()
         self._refresh_table()
+
+        if self.tree.exists(url):
+            try:
+                self.tree.selection_set(url)
+                self.tree.see(url)
+            except Exception:
+                pass
 
         if cfg["start_now"]:
             self._start_task(rec)
 
     def _start_task(self, rec: dict):
         url = rec["url"]
+        app_cfg = updater.load_config()
+        base_dir = app_cfg.get("download_dir") or updater.get_default_download_dir()
+        auto_cat = app_cfg.get("auto_categorize", True)
+
         task = DownloadTask(
             url=url,
             output_dir=rec["output_dir"],
@@ -770,7 +799,9 @@ class DmansApp(tk.Tk):
             cookies=rec.get("cookies", ""),
             referer=rec.get("referer", ""),
             user_agent=rec.get("user_agent", None),
-            quality=rec.get("quality", "best")
+            quality=rec.get("quality", "best"),
+            auto_categorize=auto_cat,
+            base_download_dir=base_dir
         )
         self.downloads[url] = task
         self._open_detail_window(task)
@@ -786,6 +817,8 @@ class DmansApp(tk.Tk):
             if rec["url"] == url:
                 rec["status"] = prog["status"]
                 rec["filename"] = prog["filename"]
+                if prog.get("output_dir"):
+                    rec["output_dir"] = prog["output_dir"]
                 rec["total_size"] = prog["total_size"]
                 rec["downloaded"] = prog["downloaded"]
                 rec["percent"] = prog["percent"]
@@ -816,6 +849,8 @@ class DmansApp(tk.Tk):
                     cat_display,
                     rec["added_time"]
                 ), tags=(stripe, status_tag))
+        else:
+            self._refresh_table()
 
         if url in self.detail_windows and self.detail_windows[url].winfo_exists():
             self.detail_windows[url].update_progress(prog)
@@ -1072,6 +1107,24 @@ class DmansApp(tk.Tk):
         )
         sub_info.pack(anchor=tk.W, padx=20, pady=(4, 0))
 
+        prompt_group = ttk.LabelFrame(tab_general, text=" Download Destination & Confirmation ", padding=10)
+        prompt_group.pack(fill=tk.X, pady=(0, 10))
+
+        show_dialog_var = tk.BooleanVar(value=cfg.get("show_download_dialog", True))
+        ttk.Checkbutton(
+            prompt_group,
+            text="Show download confirmation dialog before starting (Choose save folder & filename)",
+            variable=show_dialog_var
+        ).pack(anchor=tk.W, pady=2)
+
+        prompt_desc = ttk.Label(
+            prompt_group,
+            text="• Enabled: Dmans will pop up a dialog so you can choose where to save each file or change its name.\n• Disabled: Dmans will start downloading immediately using the default/category folder.",
+            font=("Segoe UI", 8),
+            foreground="#475569"
+        )
+        prompt_desc.pack(anchor=tk.W, padx=20, pady=(2, 0))
+
         # TAB 2: Performance
         tab_network = ttk.Frame(notebook, padding=12)
         notebook.add(tab_network, text="⚡ Performance")
@@ -1133,6 +1186,7 @@ class DmansApp(tk.Tk):
 
             cfg["download_dir"] = os.path.normpath(new_dir)
             cfg["auto_categorize"] = auto_cat_var.get()
+            cfg["show_download_dialog"] = show_dialog_var.get()
             cfg["default_connections"] = conn_var.get()
             cfg["max_concurrent_downloads"] = max_active_var.get()
             cfg["github_repo"] = repo_var.get().strip()
@@ -1434,7 +1488,11 @@ class AddDownloadDialog(tk.Toplevel):
 
         ttk.Label(f, text="Save To:").grid(row=2, column=0, sticky=tk.W, **pad)
         ttk.Entry(f, textvariable=self.dir_var).grid(row=2, column=1, sticky=tk.EW, **pad)
-        ttk.Button(f, text="Browse...", command=self._browse).grid(row=2, column=2, **pad)
+        
+        save_btn_box = ttk.Frame(f)
+        save_btn_box.grid(row=2, column=2, sticky=tk.W, padx=4, pady=4)
+        ttk.Button(save_btn_box, text="Browse...", command=self._browse).pack(side=tk.LEFT, padx=2)
+        ttk.Button(save_btn_box, text="Default", command=self._reset_default).pack(side=tk.LEFT, padx=2)
 
         ttk.Label(f, text="Category:").grid(row=3, column=0, sticky=tk.W, **pad)
         ttk.Label(f, textvariable=self.category_desc_var, font=("Segoe UI", 9, "bold"), foreground="#0369a1").grid(row=3, column=1, columnspan=2, sticky=tk.W, **pad)
@@ -1467,11 +1525,27 @@ class AddDownloadDialog(tk.Toplevel):
 
         f.columnconfigure(1, weight=1)
 
+        chk_frame = ttk.Frame(self, padding=(14, 0, 14, 4))
+        chk_frame.pack(fill=tk.X)
+        self.dont_ask_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            chk_frame,
+            text="Don't show this dialog again (Auto-start downloads using default/category folder)",
+            variable=self.dont_ask_var
+        ).pack(anchor=tk.W)
+
         btn_box = ttk.Frame(self, padding=10)
         btn_box.pack(fill=tk.X)
         ttk.Button(btn_box, text="Download Later", command=lambda: self._done(False)).pack(side=tk.LEFT, padx=6)
         ttk.Button(btn_box, text="Cancel", command=self.destroy).pack(side=tk.RIGHT, padx=6)
         ttk.Button(btn_box, text="OK / Download Now", style="Accent.TButton", command=lambda: self._done(True)).pack(side=tk.RIGHT, padx=6)
+
+        self.bind("<Return>", lambda e: self._done(True))
+        self.bind("<Escape>", lambda e: self.destroy())
+
+    def _reset_default(self):
+        self.user_custom_dir = False
+        self._on_input_changed()
 
     def _open_breakdown(self):
         url = self.url_var.get().strip()
@@ -1496,6 +1570,11 @@ class AddDownloadDialog(tk.Toplevel):
         if not url:
             messagebox.showerror("Error", "Please provide a valid URL!")
             return
+
+        if hasattr(self, "dont_ask_var") and self.dont_ask_var.get():
+            app_cfg = updater.load_config()
+            app_cfg["show_download_dialog"] = False
+            updater.save_config(app_cfg)
 
         speed_map = {"Unlimited": None, "500 KB/s": 500, "1 MB/s": 1024, "2 MB/s": 2048, "5 MB/s": 5120}
 
@@ -1597,6 +1676,9 @@ class DownloadDetailDialog(tk.Toplevel):
         dl_mb = prog["downloaded"] / (1024 * 1024)
         spd_mb = prog["speed"] / (1024 * 1024)
 
+        if prog.get("filename"):
+            self.lbl_file.config(text=f"File: {prog['filename']}")
+
         eta = "N/A"
         if prog["speed"] > 0 and prog["total_size"] > prog["downloaded"]:
             eta = f"{(prog['total_size'] - prog['downloaded']) / prog['speed']:.1f}s"
@@ -1608,6 +1690,9 @@ class DownloadDetailDialog(tk.Toplevel):
         if prog["is_finished"]:
             self.lbl_status.config(text="Status: Download Complete!", foreground="#008800")
             self.btn_pause.config(state=tk.DISABLED)
+        elif prog.get("status") == "Error":
+            self.lbl_status.config(text="Status: Download Error / Connection Failed", foreground="#DC2626")
+            self.btn_pause.config(text="Retry", state=tk.NORMAL)
 
         self._render_canvas_segments(prog["segments"], prog["total_size"])
 
@@ -1675,7 +1760,96 @@ class DownloadCompleteDialog(tk.Toplevel):
         self.destroy()
 
 
+def check_single_instance() -> bool:
+    """Ensures only one instance of Dmans is running.
+    If another instance is active on port 18888 and has a visible window,
+    forwards CLI URL and brings existing window to front.
+    If the existing instance is windowless/zombie, frees port 18888 and lets this GUI launch."""
+    try:
+        import ctypes
+        import urllib.request
+        
+        user32 = ctypes.windll.user32
+        title_prefix = "Dmans v"
+        found_hwnd = 0
+
+        def enum_cb(h, _):
+            nonlocal found_hwnd
+            if user32.IsWindowVisible(h):
+                buf = ctypes.create_unicode_buffer(256)
+                user32.GetWindowTextW(h, buf, 256)
+                if buf.value.startswith(title_prefix):
+                    found_hwnd = h
+                    return False
+            return True
+
+        WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+        user32.EnumWindows(WNDENUMPROC(enum_cb), 0)
+
+        is_port_active = False
+        try:
+            req = urllib.request.Request("http://127.0.0.1:18888/ping", headers={"User-Agent": "DmansInstanceCheck"})
+            with urllib.request.urlopen(req, timeout=0.8) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                if data.get("app") == "Dmans":
+                    is_port_active = True
+        except Exception:
+            is_port_active = False
+
+        if is_port_active:
+            # If CLI arguments were passed, forward them via /add
+            if len(sys.argv) > 1:
+                raw_arg = sys.argv[1].strip()
+                if raw_arg.startswith("dmans://"):
+                    raw_arg = raw_arg[len("dmans://"):]
+                if raw_arg.startswith("http://") or raw_arg.startswith("https://"):
+                    try:
+                        add_req = urllib.request.Request(
+                            "http://127.0.0.1:18888/add",
+                            data=json.dumps({"url": raw_arg, "start_now": True}).encode("utf-8"),
+                            headers={"Content-Type": "application/json"}
+                        )
+                        urllib.request.urlopen(add_req, timeout=2.0)
+                    except Exception:
+                        pass
+                return False
+
+            # If user launched Dmans directly (no CLI arguments)
+            if found_hwnd != 0:
+                user32.ShowWindow(found_hwnd, 9)  # SW_RESTORE
+                user32.SetForegroundWindow(found_hwnd)
+                try:
+                    show_req = urllib.request.Request("http://127.0.0.1:18888/show")
+                    urllib.request.urlopen(show_req, timeout=1.0)
+                except Exception:
+                    pass
+                return False
+            else:
+                # Port is active but NO visible window exists (headless/zombie process)
+                # Terminate the zombie process on port 18888 so this GUI can start cleanly!
+                try:
+                    import subprocess
+                    out = subprocess.check_output("netstat -ano -p tcp", shell=True).decode()
+                    my_pid = os.getpid()
+                    for line in out.splitlines():
+                        if ":18888" in line and "LISTENING" in line:
+                            parts = line.strip().split()
+                            pid = int(parts[-1])
+                            if pid != my_pid and pid > 0:
+                                subprocess.run(f"taskkill /F /PID {pid}", shell=True, capture_output=True)
+                except Exception:
+                    pass
+                return True
+    except Exception:
+        pass
+    return True
+
+
 if __name__ == "__main__":
+    import multiprocessing
+    multiprocessing.freeze_support()
+    if not check_single_instance():
+        sys.exit(0)
     try:
         app = DmansApp()
         app.mainloop()
