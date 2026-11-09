@@ -24,11 +24,21 @@ def get_app_dir():
 APP_DIR = get_app_dir()
 CONFIG_FILE = os.path.join(APP_DIR, "config.json")
 
+def get_default_download_dir() -> str:
+    user_dl = os.path.join(os.path.expanduser("~"), "Downloads")
+    if os.path.exists(user_dl):
+        return user_dl
+    return os.path.abspath(".")
+
 def load_config() -> dict:
     defaults = {
         "github_repo": version.DEFAULT_GITHUB_REPO,
         "auto_check_updates": True,
-        "last_update_check": 0
+        "last_update_check": 0,
+        "download_dir": get_default_download_dir(),
+        "auto_categorize": True,
+        "max_concurrent_downloads": 2,
+        "default_connections": 8
     }
     if os.path.exists(CONFIG_FILE):
         try:
@@ -37,6 +47,8 @@ def load_config() -> dict:
                 defaults.update(data)
         except Exception:
             pass
+    if not defaults.get("download_dir"):
+        defaults["download_dir"] = get_default_download_dir()
     return defaults
 
 def save_config(cfg: dict):

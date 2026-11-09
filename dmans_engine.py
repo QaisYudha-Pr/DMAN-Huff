@@ -23,6 +23,43 @@ socket.setdefaulttimeout(30)
 DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 OPTIMAL_CHUNK_SIZE = 262144  # 256 KB chunks for high throughput and reduced lock contention
 
+def detect_file_category(filename: str = "", content_type: str = "", url: str = "") -> str:
+    """Smartly classifies a file or stream into an IDM category based on extension, MIME, or URL."""
+    url_lower = url.lower() if url else ""
+    if any(k in url_lower for k in ["youtube.com", "youtu.be", "tiktok.com", "instagram.com/reel", "twitter.com", "x.com"]):
+        return "Video"
+
+    ext = os.path.splitext(filename.lower())[1] if filename else ""
+    ct = content_type.lower() if content_type else ""
+
+    if ext in [".zip", ".rar", ".7z", ".tar", ".gz", ".bz2", ".xz", ".iso", ".cab", ".tgz", ".7zip"] or any(x in ct for x in ["zip", "compressed", "tar"]):
+        return "Compressed"
+    elif ext in [".mp4", ".mkv", ".webm", ".avi", ".mov", ".flv", ".ts", ".m4v", ".3gp", ".wmv"] or "video" in ct:
+        return "Video"
+    elif ext in [".mp3", ".wav", ".flac", ".aac", ".ogg", ".m4a", ".opus", ".wma", ".alac"] or "audio" in ct:
+        return "Music"
+    elif ext in [".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".bmp", ".ico", ".tiff", ".raw", ".heic"] or "image" in ct:
+        return "Images"
+    elif ext in [".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".txt", ".rtf", ".epub", ".csv", ".odt", ".ods"] or "pdf" in ct or "msword" in ct:
+        return "Documents"
+    elif ext in [".exe", ".msi", ".apk", ".dmg", ".bat", ".cmd", ".sh", ".bin"]:
+        return "Programs"
+    return "General"
+
+def resolve_category_path(base_dir: str, category: str, auto_categorize: bool = True) -> str:
+    """Returns the target download folder path, respecting auto-categorization into subfolders."""
+    if not base_dir:
+        base_dir = os.path.join(os.path.expanduser("~"), "Downloads")
+    if auto_categorize and category and category not in ["General", "All Downloads", "Unfinished", "Finished"]:
+        target = os.path.join(base_dir, category)
+    else:
+        target = base_dir
+    try:
+        os.makedirs(target, exist_ok=True)
+    except Exception:
+        pass
+    return target
+
 class Segment:
     def __init__(self, seg_id: int, start: int, end: int, current: int = None):
         self.seg_id = seg_id
@@ -126,19 +163,12 @@ class DownloadTask:
         self.part_path = self.final_path + ".dmpart"
         self.meta_path = self.final_path + ".dmmeta"
 
-    def _detect_category(self, filename: str) -> str:
-        ext = os.path.splitext(filename)[1].lower()
-        if ext in [".zip", ".rar", ".7z", ".tar", ".gz", ".bz2", ".xz", ".iso"]:
-            return "Compressed"
-        elif ext in [".pdf", ".doc", ".docx", ".txt", ".rtf", ".epub", ".xls", ".xlsx", ".ppt", ".pptx"]:
-            return "Documents"
-        elif ext in [".mp4", ".mkv", ".avi", ".mov", ".wmv", ".flv", ".webm", ".m4v"]:
-            return "Video"
-        elif ext in [".mp3", ".wav", ".flac", ".aac", ".ogg", ".m4a"]:
+    def _detect_category(self, filename: str, content_type: str = "") -> str:
+        if getattr(self, "quality", "") == "audio":
             return "Music"
-        elif ext in [".exe", ".msi", ".apk", ".dmg", ".bat", ".cmd", ".sh"]:
-            return "Programs"
-        return "General"
+        if getattr(self, "is_stream_task", False):
+            return "Video"
+        return detect_file_category(filename, content_type, url=self.url)
 
     def _extract_filename(self, url: str) -> str:
         parsed = urllib.parse.urlparse(url)
@@ -250,23 +280,6 @@ class DownloadTask:
                 self._set_filename(f"{base}.zip")
 
         self.category = self._detect_category(self.filename, ct)
-
-    def _detect_category(self, filename: str, content_type: str = "") -> str:
-        ext = os.path.splitext(filename.lower())[1]
-        ct = content_type.lower()
-        if ext in [".zip", ".rar", ".7z", ".tar", ".gz", ".bz2", ".xz", ".iso", ".cab"] or any(x in ct for x in ["zip", "compressed", "tar"]):
-            return "Compressed"
-        elif ext in [".mp4", ".mkv", ".webm", ".avi", ".mov", ".flv", ".ts", ".m4v"] or "video" in ct:
-            return "Video"
-        elif ext in [".mp3", ".wav", ".flac", ".aac", ".ogg", ".m4a"] or "audio" in ct:
-            return "Music"
-        elif ext in [".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".bmp", ".ico", ".tiff"] or "image" in ct:
-            return "Images"
-        elif ext in [".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".txt"] or "pdf" in ct or "msword" in ct:
-            return "Documents"
-        elif ext in [".exe", ".msi", ".apk", ".dmg", ".bin"] or "octet-stream" in ct:
-            return "Programs"
-        return "General"
 
     def probe(self):
         """Detect file length and Range support via HTTP HEAD or GET"""

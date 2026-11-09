@@ -18,7 +18,25 @@ from typing import Dict, Optional
 
 import version
 import updater
-from dmans_engine import DownloadTask, extract_stream_breakdown
+from dmans_engine import (
+    DownloadTask,
+    extract_stream_breakdown,
+    detect_file_category,
+    resolve_category_path
+)
+
+CAT_ICON_MAP = {
+    "All Downloads": "📁 All Downloads",
+    "Unfinished": "⏳ Unfinished",
+    "Finished": "✅ Finished",
+    "Compressed": "📦 Compressed",
+    "Documents": "📄 Documents",
+    "Video": "🎬 Video",
+    "Music": "🎵 Music",
+    "Images": "🖼️ Images",
+    "Programs": "💾 Programs",
+    "General": "🗂️ General",
+}
 
 # Safe stdout/stderr for windowed mode
 if sys.stdout is None:
@@ -168,11 +186,12 @@ class DmansApp(tk.Tk):
         if "vista" in self.style.theme_names():
             self.style.theme_use("vista")
 
-        self.configure(bg="#F0F2F5")
-        self.style.configure("Treeview.Heading", font=("Segoe UI", 9, "bold"), padding=4)
-        self.style.configure("Treeview", font=("Segoe UI", 9), rowheight=26)
-        self.style.configure("TButton", font=("Segoe UI", 9), padding=4)
-        self.style.configure("Toolbar.TButton", font=("Segoe UI", 8), padding=3)
+        self.configure(bg="#F1F5F9")
+        self.style.configure("Treeview.Heading", font=("Segoe UI", 9, "bold"), padding=(6, 6))
+        self.style.configure("Treeview", font=("Segoe UI", 9), rowheight=28)
+        self.style.configure("TButton", font=("Segoe UI", 9), padding=(6, 3))
+        self.style.configure("Toolbar.TButton", font=("Segoe UI", 9), padding=(6, 3))
+        self.style.configure("Accent.TButton", font=("Segoe UI", 9, "bold"), padding=(8, 4))
 
         self.downloads: Dict[str, DownloadTask] = {}
         self.db_records = self._load_db()
@@ -234,9 +253,14 @@ class DmansApp(tk.Tk):
         self.lift()
         force_bring_to_front(self)
 
-        default_dir = os.path.join(os.path.expanduser("~"), "Downloads")
-        if not os.path.exists(default_dir):
-            default_dir = os.path.abspath(".")
+        app_cfg = updater.load_config()
+        base_dir = app_cfg.get("download_dir") or updater.get_default_download_dir()
+        auto_cat = app_cfg.get("auto_categorize", True)
+
+        cat = detect_file_category(filename=filename, url=url)
+        if quality == "audio":
+            cat = "Music"
+        target_dir = resolve_category_path(base_dir, cat, auto_cat)
 
         if not filename:
             try:
@@ -258,8 +282,9 @@ class DmansApp(tk.Tk):
             cfg = {
                 "url": url,
                 "filename": filename,
-                "output_dir": default_dir,
-                "connections": 8,
+                "output_dir": target_dir,
+                "category": cat,
+                "connections": app_cfg.get("default_connections", 8),
                 "max_speed_kb": None,
                 "cookies": cookies,
                 "referer": referer,
@@ -328,6 +353,9 @@ class DmansApp(tk.Tk):
         dl_menu.add_command(label="▶️ Start Queue", command=self.start_queue)
         dl_menu.add_command(label="⏹️ Stop All", command=self.stop_all)
         dl_menu.add_separator()
+        dl_menu.add_command(label="📁 Open Downloads Folder", command=self.open_downloads_folder)
+        dl_menu.add_command(label="⚙️ Settings & Options...", command=self.show_settings_dialog)
+        dl_menu.add_separator()
         dl_menu.add_command(label="🗑️ Delete Selected", command=self.delete_selected)
         menubar.add_cascade(label="Downloads", menu=dl_menu)
 
@@ -337,7 +365,7 @@ class DmansApp(tk.Tk):
 
         help_menu = tk.Menu(menubar, tearoff=0)
         help_menu.add_command(label="Check for Updates...", command=self.check_updates_dialog)
-        help_menu.add_command(label="GitHub Repository Settings...", command=self.show_settings_dialog)
+        help_menu.add_command(label="⚙️ Settings / Preferences...", command=self.show_settings_dialog)
         help_menu.add_separator()
         help_menu.add_command(label="About Dmans", command=lambda: messagebox.showinfo(
             "About Dmans",
@@ -350,7 +378,7 @@ class DmansApp(tk.Tk):
         self.config(menu=menubar)
 
     def _build_toolbar(self):
-        toolbar = ttk.Frame(self, padding=4)
+        toolbar = ttk.Frame(self, padding=(6, 4))
         toolbar.pack(side=tk.TOP, fill=tk.X)
 
         btn_defs = [
@@ -367,7 +395,15 @@ class DmansApp(tk.Tk):
             b = ttk.Button(toolbar, text=text, command=cmd, style="Toolbar.TButton")
             b.pack(side=tk.LEFT, padx=2, pady=2)
 
-        ttk.Separator(toolbar, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=5, pady=2)
+        ttk.Separator(toolbar, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=6, pady=2)
+
+        b_folder = ttk.Button(toolbar, text="📁 Open Folder", command=self.open_downloads_folder, style="Toolbar.TButton")
+        b_folder.pack(side=tk.LEFT, padx=2, pady=2)
+
+        b_settings = ttk.Button(toolbar, text="⚙️ Settings", command=self.show_settings_dialog, style="Toolbar.TButton")
+        b_settings.pack(side=tk.LEFT, padx=2, pady=2)
+
+        ttk.Separator(toolbar, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=6, pady=2)
 
         cb_check = ttk.Checkbutton(
             toolbar, text="📋 Clipboard", variable=self.clipboard_monitor_active
@@ -387,7 +423,7 @@ class DmansApp(tk.Tk):
         paned = ttk.PanedWindow(self, orient=tk.HORIZONTAL)
         paned.pack(fill=tk.BOTH, expand=True, padx=4, pady=2)
 
-        left_frame = ttk.Frame(paned, width=190)
+        left_frame = ttk.Frame(paned, width=200)
         paned.add(left_frame, weight=1)
 
         cat_lbl = ttk.Label(left_frame, text=" Categories", font=("Segoe UI", 9, "bold"), anchor="w")
@@ -397,19 +433,36 @@ class DmansApp(tk.Tk):
         self.cat_tree.pack(fill=tk.BOTH, expand=True, padx=2, pady=2)
 
         root_node = self.cat_tree.insert("", "end", text="📁 All Downloads", open=True, values=("All Downloads",))
-        self.cat_tree.insert(root_node, "end", text="  ⏳ Unfinished", values=("Unfinished",))
-        self.cat_tree.insert(root_node, "end", text="  ✅ Finished", values=("Finished",))
+        unfin_node = self.cat_tree.insert(root_node, "end", text="  ⏳ Unfinished", values=("Unfinished",))
+        fin_node = self.cat_tree.insert(root_node, "end", text="  ✅ Finished", values=("Finished",))
         
         types_node = self.cat_tree.insert("", "end", text="📂 File Types", open=True, values=("All Downloads",))
-        self.cat_tree.insert(types_node, "end", text="  📦 Compressed", values=("Compressed",))
-        self.cat_tree.insert(types_node, "end", text="  📄 Documents", values=("Documents",))
-        self.cat_tree.insert(types_node, "end", text="  🎬 Video", values=("Video",))
-        self.cat_tree.insert(types_node, "end", text="  🎵 Music", values=("Music",))
-        self.cat_tree.insert(types_node, "end", text="  🖼️ Images", values=("Images",))
-        self.cat_tree.insert(types_node, "end", text="  💾 Programs", values=("Programs",))
-        self.cat_tree.insert(types_node, "end", text="  🗂️ General", values=("General",))
+        comp_node = self.cat_tree.insert(types_node, "end", text="  📦 Compressed", values=("Compressed",))
+        doc_node = self.cat_tree.insert(types_node, "end", text="  📄 Documents", values=("Documents",))
+        video_node = self.cat_tree.insert(types_node, "end", text="  🎬 Video", values=("Video",))
+        music_node = self.cat_tree.insert(types_node, "end", text="  🎵 Music", values=("Music",))
+        img_node = self.cat_tree.insert(types_node, "end", text="  🖼️ Images", values=("Images",))
+        prog_node = self.cat_tree.insert(types_node, "end", text="  💾 Programs", values=("Programs",))
+        gen_node = self.cat_tree.insert(types_node, "end", text="  🗂️ General", values=("General",))
+
+        self.cat_nodes = {
+            "All Downloads": root_node,
+            "Unfinished": unfin_node,
+            "Finished": fin_node,
+            "Compressed": comp_node,
+            "Documents": doc_node,
+            "Video": video_node,
+            "Music": music_node,
+            "Images": img_node,
+            "Programs": prog_node,
+            "General": gen_node,
+        }
 
         self.cat_tree.bind("<<TreeviewSelect>>", self._on_category_select)
+
+        self.cat_menu = tk.Menu(self, tearoff=0)
+        self.cat_menu.add_command(label="📁 Open Category Folder in Explorer", command=self.open_downloads_folder)
+        self.cat_tree.bind("<Button-3>", self._show_cat_context_menu)
 
         right_frame = ttk.Frame(paned)
         paned.add(right_frame, weight=5)
@@ -432,8 +485,17 @@ class DmansApp(tk.Tk):
         self.tree.column("percent", width=75, anchor="center")
         self.tree.column("speed", width=95, anchor="e")
         self.tree.column("eta", width=75, anchor="center")
-        self.tree.column("category", width=85, anchor="center")
+        self.tree.column("category", width=105, anchor="center")
         self.tree.column("added", width=120, anchor="center")
+
+        # Treeview row & status tags
+        self.tree.tag_configure("even", background="#FFFFFF")
+        self.tree.tag_configure("odd", background="#F8FAFC")
+        self.tree.tag_configure("status_completed", foreground="#16A34A")
+        self.tree.tag_configure("status_downloading", foreground="#0284C7")
+        self.tree.tag_configure("status_paused", foreground="#D97706")
+        self.tree.tag_configure("status_error", foreground="#DC2626")
+        self.tree.tag_configure("status_queued", foreground="#64748B")
 
         tree_scroll_y = ttk.Scrollbar(right_frame, orient=tk.VERTICAL, command=self.tree.yview)
         tree_scroll_x = ttk.Scrollbar(right_frame, orient=tk.HORIZONTAL, command=self.tree.xview)
@@ -458,15 +520,63 @@ class DmansApp(tk.Tk):
         self.context_menu.add_separator()
         self.context_menu.add_command(label="🗑️ Remove from List", command=self.delete_selected)
 
+    def _show_cat_context_menu(self, event):
+        item = self.cat_tree.identify_row(event.y)
+        if item:
+            self.cat_tree.selection_set(item)
+            item_data = self.cat_tree.item(item)
+            self.selected_category = item_data.get("values", ["All Downloads"])[0]
+            self._refresh_table()
+            self.cat_menu.tk_popup(event.x_root, event.y_root)
+
     def _build_statusbar(self):
-        self.statusbar = ttk.Frame(self, relief=tk.SUNKEN, padding=(6, 3))
+        self.statusbar = ttk.Frame(self, relief=tk.FLAT, padding=(8, 4))
         self.statusbar.pack(side=tk.BOTTOM, fill=tk.X)
 
-        self.status_total_lbl = ttk.Label(self.statusbar, text="Total: 0 files | Active: 0")
+        self.status_total_lbl = ttk.Label(self.statusbar, text="Total: 0 files | Active: 0", font=("Segoe UI", 9))
         self.status_total_lbl.pack(side=tk.LEFT)
 
-        self.status_speed_lbl = ttk.Label(self.statusbar, text="Global Speed: 0.00 MB/s", font=("Segoe UI", 9, "bold"))
+        ttk.Separator(self.statusbar, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=8)
+
+        self.status_folder_lbl = ttk.Label(
+            self.statusbar,
+            text="📁 Downloads Folder",
+            font=("Segoe UI", 9, "underline"),
+            cursor="hand2",
+            foreground="#0369a1"
+        )
+        self.status_folder_lbl.pack(side=tk.LEFT)
+        self.status_folder_lbl.bind("<Button-1>", lambda _: self.open_downloads_folder())
+
+        self.status_speed_lbl = ttk.Label(self.statusbar, text="⚡ Global Speed: 0.00 MB/s", font=("Segoe UI", 9, "bold"), foreground="#0284c7")
         self.status_speed_lbl.pack(side=tk.RIGHT, padx=8)
+
+        self._update_statusbar_folder_label()
+
+    def _update_statusbar_folder_label(self):
+        cfg = updater.load_config()
+        base_dir = cfg.get("download_dir") or updater.get_default_download_dir()
+        short_dir = base_dir if len(base_dir) <= 35 else f"...{base_dir[-32:]}"
+        auto_str = " (Auto-Sort ON)" if cfg.get("auto_categorize", True) else ""
+        if hasattr(self, "status_folder_lbl"):
+            self.status_folder_lbl.config(text=f"📁 Save: {short_dir}{auto_str}")
+
+    def open_downloads_folder(self):
+        cfg = updater.load_config()
+        base_dir = cfg.get("download_dir") or updater.get_default_download_dir()
+        if self.selected_category in ["Video", "Music", "Compressed", "Documents", "Programs", "Images"]:
+            cat_dir = os.path.join(base_dir, self.selected_category)
+            if os.path.exists(cat_dir):
+                os.startfile(cat_dir)
+                return
+        if os.path.exists(base_dir):
+            os.startfile(base_dir)
+        else:
+            try:
+                os.makedirs(base_dir, exist_ok=True)
+                os.startfile(base_dir)
+            except Exception:
+                pass
 
     def _on_category_select(self, event):
         sel = self.cat_tree.selection()
@@ -475,10 +585,44 @@ class DmansApp(tk.Tk):
             self.selected_category = item.get("values", ["All Downloads"])[0]
             self._refresh_table()
 
+    def _refresh_category_counts(self):
+        if not hasattr(self, "cat_nodes"):
+            return
+        counts = {
+            "All Downloads": len(self.db_records),
+            "Unfinished": sum(1 for r in self.db_records if r.get("status") != "Completed"),
+            "Finished": sum(1 for r in self.db_records if r.get("status") == "Completed"),
+            "Compressed": sum(1 for r in self.db_records if r.get("category") == "Compressed"),
+            "Documents": sum(1 for r in self.db_records if r.get("category") == "Documents"),
+            "Video": sum(1 for r in self.db_records if r.get("category") == "Video"),
+            "Music": sum(1 for r in self.db_records if r.get("category") == "Music"),
+            "Images": sum(1 for r in self.db_records if r.get("category") == "Images"),
+            "Programs": sum(1 for r in self.db_records if r.get("category") == "Programs"),
+            "General": sum(1 for r in self.db_records if r.get("category") == "General"),
+        }
+        
+        node_labels = {
+            "All Downloads": f"📁 All Downloads ({counts['All Downloads']})",
+            "Unfinished": f"  ⏳ Unfinished ({counts['Unfinished']})",
+            "Finished": f"  ✅ Finished ({counts['Finished']})",
+            "Compressed": f"  📦 Compressed ({counts['Compressed']})",
+            "Documents": f"  📄 Documents ({counts['Documents']})",
+            "Video": f"  🎬 Video ({counts['Video']})",
+            "Music": f"  🎵 Music ({counts['Music']})",
+            "Images": f"  🖼️ Images ({counts['Images']})",
+            "Programs": f"  💾 Programs ({counts['Programs']})",
+            "General": f"  🗂️ General ({counts['General']})",
+        }
+        
+        for cat_key, node_id in self.cat_nodes.items():
+            if self.cat_tree.exists(node_id):
+                self.cat_tree.item(node_id, text=node_labels[cat_key])
+
     def _refresh_table(self):
         for row in self.tree.get_children():
             self.tree.delete(row)
 
+        idx = 0
         for rec in self.db_records:
             cat = rec.get("category", "General")
             status = rec.get("status", "Queued")
@@ -490,10 +634,15 @@ class DmansApp(tk.Tk):
             elif self.selected_category not in ["All Downloads", "Unfinished", "Finished"] and cat != self.selected_category:
                 continue
 
+            idx += 1
+            stripe_tag = "even" if idx % 2 == 0 else "odd"
+            status_tag = f"status_{status.lower()}"
+
             size_str = self._format_size(rec.get("total_size", 0))
             pct_str = f"{rec.get('percent', 0.0):.1f}%"
             speed_str = f"{rec.get('speed', 0.0) / (1024*1024):.2f} MB/s" if status == "Downloading" else "-"
             eta_str = rec.get("eta", "-") if status == "Downloading" else "-"
+            cat_display = CAT_ICON_MAP.get(cat, cat)
 
             self.tree.insert("", "end", iid=rec["url"], values=(
                 rec.get("filename", "unknown"),
@@ -502,9 +651,11 @@ class DmansApp(tk.Tk):
                 pct_str,
                 speed_str,
                 eta_str,
-                cat,
+                cat_display,
                 rec.get("added_time", "-")
-            ))
+            ), tags=(stripe_tag, status_tag))
+
+        self._refresh_category_counts()
 
     def _format_size(self, size_bytes: int) -> str:
         if size_bytes <= 0:
@@ -546,13 +697,18 @@ class DmansApp(tk.Tk):
             urls = dlg.results["urls"]
             out_dir = dlg.results["output_dir"]
             conns = dlg.results["connections"]
+            app_cfg = updater.load_config()
+            auto_cat = app_cfg.get("auto_categorize", True)
             added_cnt = 0
             for u in urls:
                 if not any(r["url"] == u for r in self.db_records):
+                    cat = detect_file_category(url=u)
+                    target_dir = resolve_category_path(out_dir, cat, auto_cat)
                     self._add_task({
                         "url": u,
                         "filename": None,
-                        "output_dir": out_dir,
+                        "output_dir": target_dir,
+                        "category": cat,
                         "connections": conns,
                         "max_speed_kb": None,
                         "start_now": False
@@ -572,6 +728,10 @@ class DmansApp(tk.Tk):
                 self.db_records.remove(rec)
                 break
 
+        cat = cfg.get("category") or detect_file_category(filename=cfg.get("filename", ""), url=url)
+        if cfg.get("quality") == "audio":
+            cat = "Music"
+
         rec = {
             "url": url,
             "filename": cfg["filename"],
@@ -588,7 +748,7 @@ class DmansApp(tk.Tk):
             "percent": 0.0,
             "speed": 0.0,
             "eta": "-",
-            "category": "General",
+            "category": cat,
             "added_time": time.strftime("%Y-%m-%d %H:%M")
         }
         self.db_records.insert(0, rec)
@@ -640,23 +800,29 @@ class DmansApp(tk.Tk):
                 break
 
         if self.tree.exists(url):
-            rec = next(r for r in self.db_records if r["url"] == url)
-            self.tree.item(url, values=(
-                rec["filename"],
-                self._format_size(rec["total_size"]),
-                rec["status"],
-                f"{rec['percent']:.1f}%",
-                f"{rec['speed'] / (1024*1024):.2f} MB/s" if rec["status"] == "Downloading" else "-",
-                rec["eta"],
-                rec["category"],
-                rec["added_time"]
-            ))
+            rec = next((r for r in self.db_records if r["url"] == url), None)
+            if rec:
+                cat_display = CAT_ICON_MAP.get(rec["category"], rec["category"])
+                current_tags = self.tree.item(url, "tags") or ("even",)
+                stripe = current_tags[0] if current_tags else "even"
+                status_tag = f"status_{rec['status'].lower()}"
+                self.tree.item(url, values=(
+                    rec["filename"],
+                    self._format_size(rec["total_size"]),
+                    rec["status"],
+                    f"{rec['percent']:.1f}%",
+                    f"{rec['speed'] / (1024*1024):.2f} MB/s" if rec["status"] == "Downloading" else "-",
+                    rec["eta"],
+                    cat_display,
+                    rec["added_time"]
+                ), tags=(stripe, status_tag))
 
         if url in self.detail_windows and self.detail_windows[url].winfo_exists():
             self.detail_windows[url].update_progress(prog)
 
         if prog["is_finished"]:
             self._save_db()
+            self._refresh_category_counts()
             rec = next((r for r in self.db_records if r["url"] == url), None)
             if rec and not rec.get("_notified"):
                 rec["_notified"] = True
@@ -831,38 +997,170 @@ class DmansApp(tk.Tk):
     def show_settings_dialog(self):
         cfg = updater.load_config()
         dlg = tk.Toplevel(self)
-        dlg.title("Dmans Settings")
-        dlg.geometry("400x200")
+        dlg.title("Dmans Options & Settings")
+        dlg.geometry("560x430")
+        dlg.minsize(520, 390)
         dlg.transient(self)
         dlg.grab_set()
 
-        f = ttk.Frame(dlg, padding=12)
-        f.pack(fill=tk.BOTH, expand=True)
+        dlg.update_idletasks()
+        pw = self.winfo_width()
+        ph = self.winfo_height()
+        px = self.winfo_rootx()
+        py = self.winfo_rooty()
+        w, h = 560, 430
+        x = max(0, px + (pw - w) // 2)
+        y = max(0, py + (ph - h) // 2)
+        dlg.geometry(f"{w}x{h}+{x}+{y}")
 
-        ttk.Label(f, text="GitHub Repository (username/repo):").pack(anchor=tk.W, pady=4)
-        repo_var = tk.StringVar(value=cfg.get("github_repo", "user/dmans"))
-        ttk.Entry(f, textvariable=repo_var, width=35).pack(fill=tk.X, pady=4)
+        main_frame = ttk.Frame(dlg, padding=12)
+        main_frame.pack(fill=tk.BOTH, expand=True)
 
-        def save():
+        notebook = ttk.Notebook(main_frame)
+        notebook.pack(fill=tk.BOTH, expand=True)
+
+        # TAB 1: General & Save Path
+        tab_general = ttk.Frame(notebook, padding=12)
+        notebook.add(tab_general, text="📁 Save Path & Sorting")
+
+        folder_group = ttk.LabelFrame(tab_general, text=" Default Download Directory ", padding=10)
+        folder_group.pack(fill=tk.X, pady=(0, 10))
+
+        ttk.Label(folder_group, text="Main folder where files will be stored:").pack(anchor=tk.W, pady=(0, 4))
+        
+        path_box = ttk.Frame(folder_group)
+        path_box.pack(fill=tk.X, pady=2)
+        
+        dir_var = tk.StringVar(value=cfg.get("download_dir") or updater.get_default_download_dir())
+        dir_entry = ttk.Entry(path_box, textvariable=dir_var)
+        dir_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
+
+        def _browse_dir():
+            d = filedialog.askdirectory(initialdir=dir_var.get(), parent=dlg)
+            if d:
+                dir_var.set(os.path.normpath(d))
+
+        def _open_current_dir():
+            d = dir_var.get().strip()
+            if os.path.exists(d):
+                os.startfile(d)
+            else:
+                try:
+                    os.makedirs(d, exist_ok=True)
+                    os.startfile(d)
+                except Exception as err:
+                    messagebox.showerror("Error", f"Could not open directory: {err}", parent=dlg)
+
+        ttk.Button(path_box, text="Browse...", command=_browse_dir).pack(side=tk.LEFT, padx=2)
+        ttk.Button(path_box, text="Open Folder", command=_open_current_dir).pack(side=tk.LEFT, padx=2)
+
+        cat_group = ttk.LabelFrame(tab_general, text=" Auto-Categorize & Subfolders (IDM-Style) ", padding=10)
+        cat_group.pack(fill=tk.X, pady=(0, 10))
+
+        auto_cat_var = tk.BooleanVar(value=cfg.get("auto_categorize", True))
+        ttk.Checkbutton(
+            cat_group,
+            text="Automatically sort files into category subfolders (Video, Music, Documents, etc.)",
+            variable=auto_cat_var
+        ).pack(anchor=tk.W, pady=2)
+
+        sub_info = ttk.Label(
+            cat_group,
+            text="• Video files & YouTube: \\Video\n• Audio & Music: \\Music\n• Compressed (.zip, .rar): \\Compressed\n• Documents (.pdf, .docx): \\Documents\n• Programs & Installers: \\Programs\n• Images & Photos: \\Images",
+            font=("Segoe UI", 8),
+            foreground="#475569"
+        )
+        sub_info.pack(anchor=tk.W, padx=20, pady=(4, 0))
+
+        # TAB 2: Performance
+        tab_network = ttk.Frame(notebook, padding=12)
+        notebook.add(tab_network, text="⚡ Performance")
+
+        perf_group = ttk.LabelFrame(tab_network, text=" Download Accelerator Engine ", padding=10)
+        perf_group.pack(fill=tk.X, pady=(0, 10))
+
+        perf_grid = ttk.Frame(perf_group)
+        perf_grid.pack(fill=tk.X, pady=4)
+
+        ttk.Label(perf_grid, text="Default Connections per File:").grid(row=0, column=0, sticky=tk.W, pady=6)
+        conn_var = tk.IntVar(value=cfg.get("default_connections", 8))
+        conn_combo = ttk.Combobox(perf_grid, textvariable=conn_var, values=[1, 2, 4, 8, 16, 24, 32], width=6, state="readonly")
+        conn_combo.grid(row=0, column=1, sticky=tk.W, padx=10, pady=6)
+
+        ttk.Label(perf_grid, text="Max Concurrent Active Downloads:").grid(row=1, column=0, sticky=tk.W, pady=6)
+        max_active_var = tk.IntVar(value=cfg.get("max_concurrent_downloads", 2))
+        active_spin = ttk.Spinbox(perf_grid, from_=1, to=10, width=5, textvariable=max_active_var)
+        active_spin.grid(row=1, column=1, sticky=tk.W, padx=10, pady=6)
+
+        # TAB 3: Updates & About
+        tab_updates = ttk.Frame(notebook, padding=12)
+        notebook.add(tab_updates, text="ℹ️ Updates & About")
+
+        repo_group = ttk.LabelFrame(tab_updates, text=" GitHub Repository Updates ", padding=10)
+        repo_group.pack(fill=tk.X, pady=(0, 10))
+
+        ttk.Label(repo_group, text="Repository (owner/repo):").pack(anchor=tk.W, pady=(0, 4))
+        repo_var = tk.StringVar(value=cfg.get("github_repo", version.DEFAULT_GITHUB_REPO))
+        ttk.Entry(repo_group, textvariable=repo_var).pack(fill=tk.X, pady=2)
+
+        auto_up_var = tk.BooleanVar(value=cfg.get("auto_check_updates", True))
+        ttk.Checkbutton(repo_group, text="Automatically check for updates on startup", variable=auto_up_var).pack(anchor=tk.W, pady=6)
+
+        btn_check = ttk.Button(repo_group, text="🔍 Check for Updates Now", command=lambda: (dlg.destroy(), self.check_updates_dialog()))
+        btn_check.pack(anchor=tk.W, pady=4)
+
+        about_lbl = ttk.Label(
+            tab_updates,
+            text=f"Dmans v{version.VERSION} - Fast Download Accelerator\nEngine: Multi-connection Segmented Downloader with yt-dlp & FFmpeg integration.",
+            font=("Segoe UI", 9),
+            foreground="#64748B"
+        )
+        about_lbl.pack(anchor=tk.W, pady=10)
+
+        # Bottom buttons
+        btn_bar = ttk.Frame(main_frame, padding=(0, 10, 0, 0))
+        btn_bar.pack(fill=tk.X, side=tk.BOTTOM)
+
+        def _save_all():
+            new_dir = dir_var.get().strip()
+            if not new_dir:
+                new_dir = updater.get_default_download_dir()
+            try:
+                os.makedirs(new_dir, exist_ok=True)
+            except Exception as e:
+                messagebox.showerror("Invalid Path", f"Could not create folder: {e}", parent=dlg)
+                return
+
+            cfg["download_dir"] = os.path.normpath(new_dir)
+            cfg["auto_categorize"] = auto_cat_var.get()
+            cfg["default_connections"] = conn_var.get()
+            cfg["max_concurrent_downloads"] = max_active_var.get()
             cfg["github_repo"] = repo_var.get().strip()
-            updater.save_config(cfg)
-            dlg.destroy()
-            messagebox.showinfo("Settings", "Settings saved successfully!")
+            cfg["auto_check_updates"] = auto_up_var.get()
 
-        ttk.Button(f, text="Save Settings", command=save).pack(side=tk.RIGHT, pady=10)
+            updater.save_config(cfg)
+            self.max_concurrent_var.set(cfg["max_concurrent_downloads"])
+            self._update_statusbar_folder_label()
+            dlg.destroy()
+            messagebox.showinfo("Settings Saved", "Preferences and download paths saved successfully!")
+
+        ttk.Button(btn_bar, text="Save Settings", style="Accent.TButton", command=_save_all).pack(side=tk.RIGHT, padx=4)
+        ttk.Button(btn_bar, text="Cancel", command=dlg.destroy).pack(side=tk.RIGHT, padx=4)
 
 
 class AddBatchDialog(tk.Toplevel):
     def __init__(self, parent):
         super().__init__(parent)
         self.title("Batch Add URLs - Dmans")
-        self.geometry("560x380")
+        self.geometry("560x400")
         self.transient(parent)
         self.grab_set()
 
         self.results = None
-        self.dir_var = tk.StringVar(value=os.path.abspath("."))
-        self.conn_var = tk.IntVar(value=8)
+        app_cfg = updater.load_config()
+        default_dir = app_cfg.get("download_dir") or updater.get_default_download_dir()
+        self.dir_var = tk.StringVar(value=default_dir)
+        self.conn_var = tk.IntVar(value=app_cfg.get("default_connections", 8))
 
         self._build_ui()
 
@@ -882,20 +1180,28 @@ class AddBatchDialog(tk.Toplevel):
         ttk.Button(opt_frame, text="Browse...", command=self._browse).grid(row=0, column=2, padx=4)
 
         ttk.Label(opt_frame, text="Connections per file:").grid(row=1, column=0, sticky=tk.W, padx=4, pady=4)
-        ttk.Combobox(opt_frame, textvariable=self.conn_var, values=[1, 2, 4, 8, 16], width=6, state="readonly").grid(row=1, column=1, sticky=tk.W, padx=4, pady=4)
+        ttk.Combobox(opt_frame, textvariable=self.conn_var, values=[1, 2, 4, 8, 16, 24, 32], width=6, state="readonly").grid(row=1, column=1, sticky=tk.W, padx=4, pady=4)
 
         opt_frame.columnconfigure(1, weight=1)
+
+        note_lbl = ttk.Label(
+            f,
+            text="* If auto-categorization is enabled, files will be sorted into subfolders automatically.",
+            font=("Segoe UI", 8),
+            foreground="#64748B"
+        )
+        note_lbl.pack(anchor=tk.W, pady=(0, 6))
 
         btn_box = ttk.Frame(f)
         btn_box.pack(fill=tk.X, pady=6)
 
         ttk.Button(btn_box, text="Cancel", command=self.destroy).pack(side=tk.RIGHT, padx=4)
-        ttk.Button(btn_box, text="Add All to Queue", command=self._done).pack(side=tk.RIGHT, padx=4)
+        ttk.Button(btn_box, text="Add All to Queue", style="Accent.TButton", command=self._done).pack(side=tk.RIGHT, padx=4)
 
     def _browse(self):
-        d = filedialog.askdirectory(initialdir=self.dir_var.get())
+        d = filedialog.askdirectory(initialdir=self.dir_var.get(), parent=self)
         if d:
-            self.dir_var.set(d)
+            self.dir_var.set(os.path.normpath(d))
 
     def _done(self):
         raw = self.text_area.get("1.0", tk.END).strip()
@@ -1012,7 +1318,7 @@ class AddDownloadDialog(tk.Toplevel):
         self.title("Enter URL to Download - Dmans")
         sw = self.winfo_screenwidth()
         sh = self.winfo_screenheight()
-        w, h = 560, 360
+        w, h = 580, 400
         x = max(0, (sw - w) // 2)
         y = max(0, (sh - h) // 2)
         self.geometry(f"{w}x{h}+{x}+{y}")
@@ -1026,9 +1332,23 @@ class AddDownloadDialog(tk.Toplevel):
         self.referer = referer or ""
         self.user_agent = user_agent or ""
         self.url_var = tk.StringVar(value=initial_url)
-        self.dir_var = tk.StringVar(value=os.path.abspath("."))
         self.file_var = tk.StringVar(value=filename)
-        self.conn_var = tk.IntVar(value=8)
+
+        app_cfg = updater.load_config()
+        self.base_dir = app_cfg.get("download_dir") or updater.get_default_download_dir()
+        self.auto_cat = app_cfg.get("auto_categorize", True)
+
+        init_cat = detect_file_category(filename=filename, url=initial_url)
+        if quality == "audio":
+            init_cat = "Music"
+        self.category_var = tk.StringVar(value=init_cat)
+        self.category_desc_var = tk.StringVar(value=self._get_cat_desc(init_cat))
+
+        target_dir = resolve_category_path(self.base_dir, init_cat, self.auto_cat)
+        self.dir_var = tk.StringVar(value=target_dir)
+        self.user_custom_dir = False
+
+        self.conn_var = tk.IntVar(value=app_cfg.get("default_connections", 8))
         self.speed_var = tk.StringVar(value="Unlimited")
 
         qual_label_map = {
@@ -1053,14 +1373,43 @@ class AddDownloadDialog(tk.Toplevel):
                         if info and info.get('title'):
                             clean = "".join(c for c in info['title'] if c.isalnum() or c in " ._- ()")
                             ext = info.get('ext', 'mp4')
-                            self.after(0, lambda: self.file_var.set(f"{clean}.{ext}"))
+                            self.after(0, lambda: self._apply_fetched_title(clean, ext))
                     except Exception:
                         pass
                 threading.Thread(target=_fetch_title, daemon=True).start()
 
         if not filename:
             self.url_var.trace_add("write", lambda *_: self.file_var.set(self._guess_filename(self.url_var.get())))
+
+        self.url_var.trace_add("write", self._on_input_changed)
+        self.file_var.trace_add("write", self._on_input_changed)
+        self.quality_var.trace_add("write", self._on_input_changed)
+
         self._build_ui()
+
+    def _get_cat_desc(self, cat: str) -> str:
+        icon_text = CAT_ICON_MAP.get(cat, f"🗂️ {cat}")
+        if self.auto_cat and cat not in ["General", "All Downloads"]:
+            return f"{icon_text}  (Auto-sorted into \\{cat} folder)"
+        return f"{icon_text}  (Main downloads folder)"
+
+    def _apply_fetched_title(self, clean: str, ext: str):
+        self.file_var.set(f"{clean}.{ext}")
+        self._on_input_changed()
+
+    def _on_input_changed(self, *_):
+        if self.user_custom_dir:
+            return
+        u = self.url_var.get().strip()
+        fn = self.file_var.get().strip()
+        q = self.quality_var.get()
+        cat = detect_file_category(filename=fn, url=u)
+        if "Audio Only" in q:
+            cat = "Music"
+        self.category_var.set(cat)
+        self.category_desc_var.set(self._get_cat_desc(cat))
+        new_target = resolve_category_path(self.base_dir, cat, self.auto_cat)
+        self.dir_var.set(new_target)
 
     def _guess_filename(self, url: str) -> str:
         try:
@@ -1071,7 +1420,7 @@ class AddDownloadDialog(tk.Toplevel):
             return ""
 
     def _build_ui(self):
-        pad = {"padx": 10, "pady": 5}
+        pad = {"padx": 10, "pady": 4}
         f = ttk.Frame(self, padding=12)
         f.pack(fill=tk.BOTH, expand=True)
 
@@ -1087,15 +1436,18 @@ class AddDownloadDialog(tk.Toplevel):
         ttk.Entry(f, textvariable=self.dir_var).grid(row=2, column=1, sticky=tk.EW, **pad)
         ttk.Button(f, text="Browse...", command=self._browse).grid(row=2, column=2, **pad)
 
-        ttk.Label(f, text="Connections:").grid(row=3, column=0, sticky=tk.W, **pad)
+        ttk.Label(f, text="Category:").grid(row=3, column=0, sticky=tk.W, **pad)
+        ttk.Label(f, textvariable=self.category_desc_var, font=("Segoe UI", 9, "bold"), foreground="#0369a1").grid(row=3, column=1, columnspan=2, sticky=tk.W, **pad)
+
+        ttk.Label(f, text="Connections:").grid(row=4, column=0, sticky=tk.W, **pad)
         conn_cb = ttk.Combobox(f, textvariable=self.conn_var, values=[1, 2, 4, 8, 16, 24, 32], width=8, state="readonly")
-        conn_cb.grid(row=3, column=1, sticky=tk.W, **pad)
+        conn_cb.grid(row=4, column=1, sticky=tk.W, **pad)
 
-        ttk.Label(f, text="Speed Limiter:").grid(row=4, column=0, sticky=tk.W, **pad)
+        ttk.Label(f, text="Speed Limiter:").grid(row=5, column=0, sticky=tk.W, **pad)
         speed_cb = ttk.Combobox(f, textvariable=self.speed_var, values=["Unlimited", "500 KB/s", "1 MB/s", "2 MB/s", "5 MB/s"], width=12, state="readonly")
-        speed_cb.grid(row=4, column=1, sticky=tk.W, **pad)
+        speed_cb.grid(row=5, column=1, sticky=tk.W, **pad)
 
-        ttk.Label(f, text="Quality / Format:").grid(row=5, column=0, sticky=tk.W, **pad)
+        ttk.Label(f, text="Quality / Format:").grid(row=6, column=0, sticky=tk.W, **pad)
         qual_cb = ttk.Combobox(
             f,
             textvariable=self.quality_var,
@@ -1110,8 +1462,8 @@ class AddDownloadDialog(tk.Toplevel):
             width=22,
             state="readonly"
         )
-        qual_cb.grid(row=5, column=1, sticky=tk.W, **pad)
-        ttk.Button(f, text="🔍 Breakdown...", command=self._open_breakdown).grid(row=5, column=2, **pad)
+        qual_cb.grid(row=6, column=1, sticky=tk.W, **pad)
+        ttk.Button(f, text="🔍 Breakdown...", command=self._open_breakdown).grid(row=6, column=2, **pad)
 
         f.columnconfigure(1, weight=1)
 
@@ -1119,7 +1471,7 @@ class AddDownloadDialog(tk.Toplevel):
         btn_box.pack(fill=tk.X)
         ttk.Button(btn_box, text="Download Later", command=lambda: self._done(False)).pack(side=tk.LEFT, padx=6)
         ttk.Button(btn_box, text="Cancel", command=self.destroy).pack(side=tk.RIGHT, padx=6)
-        ttk.Button(btn_box, text="OK / Download Now", command=lambda: self._done(True)).pack(side=tk.RIGHT, padx=6)
+        ttk.Button(btn_box, text="OK / Download Now", style="Accent.TButton", command=lambda: self._done(True)).pack(side=tk.RIGHT, padx=6)
 
     def _open_breakdown(self):
         url = self.url_var.get().strip()
@@ -1134,9 +1486,10 @@ class AddDownloadDialog(tk.Toplevel):
         VideoStreamBreakdownDialog(self, url, _on_format_selected)
 
     def _browse(self):
-        d = filedialog.askdirectory(initialdir=self.dir_var.get())
+        d = filedialog.askdirectory(initialdir=self.dir_var.get(), parent=self)
         if d:
-            self.dir_var.set(d)
+            self.dir_var.set(os.path.normpath(d))
+            self.user_custom_dir = True
 
     def _done(self, start_now: bool):
         url = self.url_var.get().strip()
@@ -1160,6 +1513,7 @@ class AddDownloadDialog(tk.Toplevel):
             "url": url,
             "filename": self.file_var.get().strip() or None,
             "output_dir": self.dir_var.get(),
+            "category": self.category_var.get(),
             "connections": self.conn_var.get(),
             "max_speed_kb": speed_map.get(self.speed_var.get()),
             "start_now": start_now,
